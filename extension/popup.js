@@ -154,6 +154,11 @@
           $visualizer.classList.add("active-capturing");
           $lineCount.innerText = `${res.lines || 0} lines`;
           
+          if (res.lines > 0 || res.capturing) {
+            $captionState.className = "status-pill state-on";
+            $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">ON</span>';
+          }
+          
           if (res.startTime) {
             timerStart = res.startTime;
             timerInterval = setInterval(() => {

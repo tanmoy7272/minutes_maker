@@ -41,7 +41,7 @@
     }
   };
 
-  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify with button pressed state
+  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via container presence
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
     autoCapTimer = setInterval(() => {
@@ -51,15 +51,18 @@
         console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
+      // If captions element is already mounted in DOM, captions are ON!
+      const el = document.querySelector('[jsname="tgaKEf"]');
+      if (el) {
+        console.log("[MMP] Captions flow verified active via container presence.");
+        clearInterval(autoCapTimer);
+        return;
+      }
+
       const btn = document.querySelector('button[aria-label*="captions" i], button[aria-label*="(c)"], button[data-tooltip*="(c)"]');
       if (btn) {
-        if (btn.getAttribute("aria-pressed") !== "true") {
-          btn.click();
-          console.log("[MMP] Clicked captions button automatically.");
-        } else {
-          console.log("[MMP] Captions flow verified active via button state.");
-          clearInterval(autoCapTimer);
-        }
+        btn.click();
+        console.log("[MMP] Clicked captions button automatically.");
       }
     }, 1500);
   };
@@ -115,6 +118,11 @@
       activeObservedElement = el;
       console.log("[MMP] Connected inner captions observer directly to container.");
       
+      // Notify popup immediately that captions are ON
+      try {
+        chrome.runtime.sendMessage({ event: "captionsDetected" });
+      } catch (_) {}
+
       // Pull any initial text instantly
       handleCaptionMutation();
     } else if (!el && activeObservedElement) {
