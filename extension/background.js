@@ -107,7 +107,10 @@ chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
     callSummarizeAPI(msg.summary, msg.transcript)
       .then((markdown) => {
         const bytes = new TextEncoder().encode(markdown);
-        const binary = String.fromCharCode(...bytes);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
         const encoded = btoa(binary);
         chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
         sendResponse({ ok: true });

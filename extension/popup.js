@@ -52,7 +52,6 @@
     }
   };
 
-  // Stop Capture click: sends transcript to API, retries once, base64 encodes
   $stop.onclick = async () => {
     clearInterval(timerInterval);
     $overlay.classList.add("active-overlay");
@@ -62,7 +61,10 @@
 
       const markdown = await callSummarizeAPI(data.summary, data.transcript);
       const bytes = new TextEncoder().encode(markdown);
-      const binary = String.fromCharCode(...bytes);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
       const encoded = btoa(binary);
       chrome.tabs.create({ url: `${PORTAL_URL}/result#${encoded}` });
       showToast("Minutes compiled", "success");
