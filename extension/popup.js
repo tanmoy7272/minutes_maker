@@ -152,6 +152,16 @@
           $start.disabled = true;
           $stop.disabled = false;
           $visualizer.classList.add("active-capturing");
+          $lineCount.innerText = `${res.lines || 0} lines`;
+          
+          if (res.startTime) {
+            timerStart = res.startTime;
+            timerInterval = setInterval(() => {
+              const elapsed = Date.now() - timerStart;
+              const s = Math.floor(elapsed / 1000);
+              $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+            }, 1000);
+          }
         }
       });
     }

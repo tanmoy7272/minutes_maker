@@ -4,14 +4,14 @@
   let capturing = false;
   let transcript = [];
   let previousSummary = "";
-  let lastText = "";
   let lastCheckTime = 0;
+  let captureStartTime = 0;
   
   // Observers
-  let capObserver = null;
-  let autoCapObs = null;
+  let bodyObserver = null;
+  let captionsObserver = null;
+  let activeObservedElement = null;
   let autoCapTimer = null;
-  let observingBody = false;
 
   // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER (Mimics idb-keyval natively)
   const DB_NAME = "MMP_RECOVERY_DB";
@@ -67,26 +67,14 @@
   // 3. CAPTION CAPTURE & DEDUPLICATION: 3 checks/sec throttle, Hash-based deduplication
   const lastTexts = new Set();
 
-  const handleMutation = () => {
+  const handleCaptionMutation = () => {
     if (!capturing) return;
     const now = Date.now();
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    // Observe ONLY the real captions container
     const el = document.querySelector('[jsname="tgaKEf"]');
     if (!el) return;
-
-    // Upgrade observer to target container if we were observing fallback body
-    if (observingBody) {
-      console.log("[MMP] Captions container detected. Upgrading observer for maximum CPU efficiency.");
-      startObserving();
-      return;
-    }
-
-    // Capture only when captions block is finalized (opacity=1)
-    const style = window.getComputedStyle(el);
-    if (style.opacity !== "1") return;
 
     const text = el.textContent.trim();
     if (!text) return;
@@ -111,6 +99,31 @@
     } catch (_) {}
   };
 
+  const syncObservers = () => {
+    if (!capturing) {
+      disconnectObservers();
+      return;
+    }
+
+    const el = document.querySelector('[jsname="tgaKEf"]');
+    
+    // If the captions container changed or was recreated, re-bind the captionsObserver
+    if (el && activeObservedElement !== el) {
+      if (captionsObserver) captionsObserver.disconnect();
+      captionsObserver = new MutationObserver(handleCaptionMutation);
+      captionsObserver.observe(el, { childList: true, subtree: true, characterData: true });
+      activeObservedElement = el;
+      console.log("[MMP] Connected inner captions observer directly to container.");
+      
+      // Pull any initial text instantly
+      handleCaptionMutation();
+    } else if (!el && activeObservedElement) {
+      if (captionsObserver) captionsObserver.disconnect();
+      activeObservedElement = null;
+      console.log("[MMP] Inner captions observer disconnected (container unmounted).");
+    }
+  };
+
   // 4. PERFORMANCE: Web Worker for background chunking
   const workerCode = `
     self.onmessage = function(e) {
@@ -125,20 +138,32 @@
   const blob = new Blob([workerCode], { type: "application/javascript" });
   const chunkWorker = new Worker(URL.createObjectURL(blob));
 
-  // 5. PERFORMANCE: Keep observers active on actual captions container
+  // 5. PERFORMANCE: Parent-child re-binding MutationObserver
   const startObserving = () => {
-    if (capObserver) capObserver.disconnect();
-    capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('[jsname="tgaKEf"]');
-    if (target) {
-      capObserver.observe(target, { childList: true, subtree: true, characterData: true });
-      observingBody = false;
-      console.log("[MMP] Observer registered directly on captions container.");
-    } else {
-      capObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-      observingBody = true;
-      console.log("[MMP] Observer registered on fallback document.body.");
+    disconnectObservers();
+    
+    // Bind lightweight childList observer on body to detect container creation/destruction
+    bodyObserver = new MutationObserver(() => {
+      syncObservers();
+    });
+    bodyObserver.observe(document.body, { childList: true, subtree: true });
+    console.log("[MMP] Connected outer body observer.");
+
+    // Initial sync check
+    syncObservers();
+  };
+
+  const disconnectObservers = () => {
+    if (bodyObserver) {
+      bodyObserver.disconnect();
+      bodyObserver = null;
     }
+    if (captionsObserver) {
+      captionsObserver.disconnect();
+      captionsObserver = null;
+    }
+    activeObservedElement = null;
+    console.log("[MMP] Disconnected all scraper observers.");
   };
 
   // 6. AUTO-SAVE & STATE RECOVERY: every 15s to 'mmp-recovery' IndexedDB key
@@ -163,31 +188,30 @@
     }
   };
 
-  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR
+  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Path & Controls Aware)
   let hadMeetControls = false;
   
   const checkMeetingEndStatus = () => {
     if (!capturing) return;
     
-    // Target Google Meet's active hangup button
+    const isMeetSession = /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(window.location.pathname);
     const hangupBtn = document.querySelector('button[aria-label*="leave" i], button[aria-label*="call" i]');
     
-    if (hangupBtn) {
+    if (isMeetSession && hangupBtn) {
       hadMeetControls = true;
-    } else if (hadMeetControls) {
-      // The call was active, but controls are now unmounted (meeting left/ended!)
+    } else if (!isMeetSession || (hadMeetControls && !hangupBtn)) {
+      // Session ended by leaving route or button unmounting
       console.log("[MMP] Auto-Supervisor detected hangup/leave. Ending capture...");
       capturing = false;
       hadMeetControls = false;
       
-      if (capObserver) capObserver.disconnect();
+      disconnectObservers();
       clearInterval(autoCapTimer);
       
       const fullText = transcript.join("\n");
       idb.del("mmp-recovery"); // Clear recovery buffer
       
       if (transcript.length > 0) {
-        // Send directly to background service worker to summarize and launch tab
         chrome.runtime.sendMessage({ 
           action: "autoStopAndSummarize", 
           transcript: fullText, 
@@ -203,15 +227,16 @@
   chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
     if (msg.action === "start") {
       capturing = true;
+      captureStartTime = Date.now();
       startAutoCaptionsFlow();
       startObserving();
       sendResponse({ ok: true });
     } else if (msg.action === "stop") {
       capturing = false;
-      if (capObserver) capObserver.disconnect();
+      captureStartTime = 0;
+      disconnectObservers();
       clearInterval(autoCapTimer);
 
-      // Process final chunk compilation in background thread via Web Worker
       const fullText = transcript.join("\n");
       chunkWorker.onmessage = (e) => {
         const chunks = e.data;
@@ -222,10 +247,11 @@
     } else if (msg.action === "clear") {
       transcript = [];
       previousSummary = "";
+      captureStartTime = 0;
       idb.del("mmp-recovery");
       sendResponse({ ok: true });
     } else if (msg.action === "ping") {
-      sendResponse({ ok: true, capturing, lines: transcript.length });
+      sendResponse({ ok: true, capturing, lines: transcript.length, startTime: captureStartTime });
     }
     return true; // Keep channel open async
   });
@@ -235,7 +261,7 @@
 
   // Clean exit
   window.addEventListener("beforeunload", () => {
-    if (capObserver) capObserver.disconnect();
+    disconnectObservers();
     clearInterval(autoCapTimer);
   });
 
