@@ -77,7 +77,7 @@ const callSummarizeAPI = async (prevSummary, transcript, isRetry = false) => {
       body: JSON.stringify({ 
         previousSummary: prevSummary, 
         chunk: transcript,
-        version: "1.1.0"
+        version: chrome.runtime.getManifest().version
       }),
       signal: controller.signal
     });
