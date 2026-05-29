@@ -50,8 +50,9 @@ export default function ResultPage() {
         if (hash && hash.length > 1) {
           try {
             const encoded = hash.substring(1);
-            // safe UTF-8 decoding
-            const decoded = decodeURIComponent(escape(atob(encoded)));
+            const binary = atob(encoded);
+            const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+            const decoded = new TextDecoder().decode(bytes);
             setMarkdown(decoded);
 
             // Infer title from first line if it's a h1 header

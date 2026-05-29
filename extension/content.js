@@ -11,6 +11,7 @@
   let capObserver = null;
   let autoCapObs = null;
   let autoCapTimer = null;
+  let observingBody = false;
 
   // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER (Mimics idb-keyval natively)
   const DB_NAME = "MMP_RECOVERY_DB";
@@ -50,7 +51,7 @@
         console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
-      const btn = document.querySelector('button[aria-label*="captions" i]');
+      const btn = document.querySelector('button[aria-label*="captions" i], button[aria-label*="(c)"], button[data-tooltip*="(c)"]');
       if (btn) {
         if (btn.getAttribute("aria-pressed") !== "true") {
           btn.click();
@@ -75,6 +76,13 @@
     // Observe ONLY the real captions container
     const el = document.querySelector('[jsname="tgaKEf"]');
     if (!el) return;
+
+    // Upgrade observer to target container if we were observing fallback body
+    if (observingBody) {
+      console.log("[MMP] Captions container detected. Upgrading observer for maximum CPU efficiency.");
+      startObserving();
+      return;
+    }
 
     // Capture only when captions block is finalized (opacity=1)
     const style = window.getComputedStyle(el);
@@ -119,9 +127,18 @@
 
   // 5. PERFORMANCE: Keep observers active on actual captions container
   const startObserving = () => {
+    if (capObserver) capObserver.disconnect();
     capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('[jsname="tgaKEf"]') || document.body;
-    capObserver.observe(target, { childList: true, subtree: true, characterData: true });
+    const target = document.querySelector('[jsname="tgaKEf"]');
+    if (target) {
+      capObserver.observe(target, { childList: true, subtree: true, characterData: true });
+      observingBody = false;
+      console.log("[MMP] Observer registered directly on captions container.");
+    } else {
+      capObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      observingBody = true;
+      console.log("[MMP] Observer registered on fallback document.body.");
+    }
   };
 
   // 6. AUTO-SAVE & STATE RECOVERY: every 15s to 'mmp-recovery' IndexedDB key

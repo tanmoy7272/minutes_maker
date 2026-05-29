@@ -56,7 +56,9 @@
       if (!data.transcript) throw new Error("No transcript found");
 
       const markdown = await callSummarizeAPI(data.summary, data.transcript);
-      const encoded = btoa(unescape(encodeURIComponent(markdown)));
+      const bytes = new TextEncoder().encode(markdown);
+      const binary = String.fromCharCode(...bytes);
+      const encoded = btoa(binary);
       chrome.tabs.create({ url: `${PORTAL_URL}/result#${encoded}` });
       showToast("Minutes compiled", "success");
       resetUI();

@@ -20,16 +20,21 @@ function validateSummary(json: SummarizeResult, transcript: string): boolean {
     if (!json.executiveSummary || !Array.isArray(json.actionItems)) return false;
     
     for (const item of json.actionItems) {
-      // Validate owner exists in transcript via case-insensitive includes check
-      if (item.owner && item.owner !== "—" && item.owner !== "Not mentioned") {
-        if (!transcript.toLowerCase().includes(item.owner.toLowerCase())) {
+      // Smart Owner Name word-matching to support full-name inference on first-name captions
+      if (item.owner && item.owner !== "—" && item.owner !== "Not mentioned" && item.owner !== "None") {
+        const words = item.owner.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const nameFound = words.length > 0 
+          ? words.some(word => transcript.toLowerCase().includes(word))
+          : transcript.toLowerCase().includes(item.owner.toLowerCase());
+          
+        if (!nameFound) {
           console.warn(`[MMP] Owner validation failed: "${item.owner}" not found in transcript.`);
           return false;
         }
       }
-      // Validate evidence length is at least 10 chars
-      if (!item.evidence || item.evidence.length < 10) {
-        console.warn(`[MMP] Evidence validation failed: "${item.evidence}" is too short.`);
+      // Relaxed non-empty evidence check to allow short agreements (e.g. "Alex: Yes.")
+      if (!item.evidence || item.evidence.trim().length === 0) {
+        console.warn(`[MMP] Evidence validation failed: evidence text is empty.`);
         return false;
       }
     }
