@@ -41,14 +41,82 @@
     }
   };
 
-  // Helper to find the speaker block element from a caption span
+  // Helper to find the captions toggle button using robust accessibility and shortcut labels
+  const getCaptionsButton = () => {
+    // 1. Try finding by accessibility labels on any element
+    const selector = '[aria-label*="caption" i], [aria-label*="(c)"], [data-tooltip*="(c)"], [aria-label*="cc" i], [data-tooltip*="cc" i]';
+    const el = document.querySelector(selector);
+    if (el) {
+      return el.closest('button') || el;
+    }
+    
+    // 2. Traversal fallback: search text inside all buttons
+    const buttons = Array.from(document.querySelectorAll('button'));
+    for (const btn of buttons) {
+      const text = (btn.getAttribute('aria-label') || btn.getAttribute('data-tooltip') || btn.textContent || '').toLowerCase();
+      if (text.includes('caption') || text.includes('(c)') || text.includes('subtitles') || text.includes('cc')) {
+        return btn;
+      }
+    }
+    
+    return null;
+  };
+
+  // Helper to determine the captions button toggle state (ON or OFF)
+  const getCaptionsState = (btn) => {
+    if (!btn) return false;
+    
+    // A. Check aria-pressed accessibility state
+    const pressed = btn.getAttribute('aria-pressed') || btn.querySelector('[aria-pressed]')?.getAttribute('aria-pressed');
+    if (pressed === 'true') return true;
+    if (pressed === 'false') return false;
+    
+    // B. Check text description for toggle cues
+    const label = (btn.getAttribute('aria-label') || btn.getAttribute('data-tooltip') || btn.textContent || '').toLowerCase();
+    if (label.includes('turn off') || label.includes('disable') || label.includes('desactivar') || label.includes('désactiver')) {
+      return true;
+    }
+    if (label.includes('turn on') || label.includes('enable') || label.includes('activar') || label.includes('activer')) {
+      return false;
+    }
+    
+    return false;
+  };
+
+  // Helper to find the captions container element semantically
+  const getCaptionsContainer = () => {
+    // A. Search by accessibility region role
+    let el = document.querySelector('[role="region"][aria-label*="caption" i]');
+    if (el) return el;
+    
+    // B. Search by standard Google Meet developer containers
+    el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], [jsname="ME7oBc"]');
+    if (el) return el;
+    
+    // C. Dynamic search for the parent container of active caption spans
+    const activeText = document.querySelector('.CNusmb, .ygicle, .VbkSUe');
+    if (activeText) {
+      let current = activeText;
+      while (current && current !== document.body) {
+        const parent = current.parentElement;
+        if (!parent || parent === document.body) break;
+        if (parent.getAttribute('role') === 'region' || parent.getAttribute('jsname') || parent.children.length > 2) {
+          return parent;
+        }
+        current = parent;
+      }
+    }
+    
+    return null;
+  };
+
+  // Helper to find the speaker block element from a child span
   const getSpeakerBlock = (cnusmbEl) => {
     let current = cnusmbEl;
     while (current && current !== document.body) {
       const parent = current.parentElement;
       if (!parent || parent === document.body) break;
       
-      // Look for a structural parent container that houses the speaker metadata and captions.
       if (parent.getAttribute('role') === 'region' && parent.getAttribute('aria-label') === 'Captions') {
         return current;
       }
@@ -63,7 +131,6 @@
       
       current = parent;
     }
-    // Fallback: 2 levels up
     return cnusmbEl.parentElement?.parentElement || cnusmbEl.parentElement || cnusmbEl;
   };
 
@@ -81,22 +148,33 @@
       return img.getAttribute('alt').trim();
     }
     
-    // 3. Fallback traversal: find first element with short, non-numeric text that has no caption class
-    const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (!node.querySelector('.CNusmb') && !node.classList.contains('CNusmb')) {
-        const text = node.textContent.trim();
-        if (text && text.length > 1 && text.length < 40 && isNaN(text)) {
-          return text;
-        }
-      }
+    // 3. Traversal fallback: check the first child's text content (typically contains name)
+    const firstChild = block.firstElementChild;
+    if (firstChild && firstChild.textContent.trim()) {
+      const text = firstChild.textContent.trim();
+      if (text.length < 40 && isNaN(text)) return text;
     }
     
     return "Speaker";
   };
 
-  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via button attribute or DOM presence
+  // Helper to extract the caption text from a speaker block
+  const getBlockCaptionText = (block, speakerName) => {
+    // A. Try standard text selectors
+    const spans = Array.from(block.querySelectorAll('.CNusmb, .ygicle, .VbkSUe'));
+    if (spans.length > 0) {
+      return spans.map(s => s.textContent.trim()).filter(Boolean).join(" ");
+    }
+    
+    // B. Semantic Fallback: Subtract speaker name from block's overall text content
+    let fullText = block.textContent.trim();
+    if (speakerName && fullText.startsWith(speakerName)) {
+      fullText = fullText.substring(speakerName.length).trim();
+    }
+    return fullText;
+  };
+
+  // 2. AUTO-CAPTIONS: Click captions toggle if inactive
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
     autoCapTimer = setInterval(() => {
@@ -106,16 +184,13 @@
         console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
-      // Check if captions are already active via aria-pressed or captions DOM
-      const btn = document.querySelector('button[aria-label*="captions" i], button[aria-label*="(c)"], button[data-tooltip*="(c)"]');
-      const isCaptionsOn = btn && btn.getAttribute('aria-pressed') === 'true';
-      const el = document.querySelector('.CNusmb, [jsname="tgaKEf"], [jsname="YSs4S"], [jsname="ME7oBc"]');
+      const btn = getCaptionsButton();
+      const isCaptionsOn = !!(getCaptionsContainer() || (btn && getCaptionsState(btn)));
       
-      if (isCaptionsOn || el) {
+      if (isCaptionsOn) {
         console.log("[MMP] Captions flow verified active.");
         clearInterval(autoCapTimer);
         
-        // Notify popup immediately
         try {
           chrome.runtime.sendMessage({ event: "captionsDetected" });
         } catch (_) {}
@@ -129,7 +204,7 @@
     }, 1500);
   };
 
-  // 3. CAPTION CAPTURE & DEDUPLICATION: 3 checks/sec throttle, advanced speaker block parser
+  // 3. CAPTION CAPTURE & DEDUPLICATION: 3 checks/sec throttle, advanced semantic scraper
   const lastTexts = new Set();
 
   const handleCaptionMutation = () => {
@@ -138,16 +213,14 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec to ensure ZERO CPU load
     lastCheckTime = now;
 
-    const cnusmbs = document.querySelectorAll('.CNusmb');
+    const container = getCaptionsContainer();
+    if (!container) return;
+
+    // Children represent individual speaker turns in Google Meet captions layout
+    const blockEls = Array.from(container.children).filter(el => el.nodeType === Node.ELEMENT_NODE);
     
-    if (cnusmbs.length > 0) {
-      const seenBlockEls = new Set();
-      
-      cnusmbs.forEach((span) => {
-        const blockEl = getSpeakerBlock(span);
-        if (!blockEl || seenBlockEls.has(blockEl)) return;
-        seenBlockEls.add(blockEl);
-        
+    if (blockEls.length > 0) {
+      blockEls.forEach((blockEl) => {
         // Assign a persistent unique ID directly to the DOM element
         if (!blockEl._mmp_id) {
           blockEl._mmp_id = `block_${blockIdCounter++}`;
@@ -155,10 +228,7 @@
         
         const blockId = blockEl._mmp_id;
         const speaker = getSpeakerName(blockEl);
-        
-        // Extract caption text
-        const spans = Array.from(blockEl.querySelectorAll('.CNusmb'));
-        const text = spans.map(s => s.textContent.trim()).filter(Boolean).join(" ");
+        const text = getBlockCaptionText(blockEl, speaker);
         
         if (!text) return;
         
@@ -176,7 +246,7 @@
       
       // Update transcript mapping
       transcript = blocksList.map(b => `${b.speaker}: ${b.text}`);
-      console.log(`[MMP] Advanced parser synced ${transcript.length} lines`);
+      console.log(`[MMP] Semantic parser synced ${transcript.length} lines`);
       
       try {
         chrome.runtime.sendMessage({ event: "captionsDetected" });
