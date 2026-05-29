@@ -57,7 +57,9 @@
     $overlay.classList.add("active-overlay");
     try {
       const data = await sendTabMessage("stop");
-      if (!data.transcript) throw new Error("No transcript found");
+      if (!data || !data.transcript || data.transcript.trim().length === 0) {
+        throw new Error(`No transcript captured. Open DevTools console (F12) on the Meet tab and look for [MMP] logs to diagnose.`);
+      }
 
       const markdown = await callSummarizeAPI(data.summary, data.transcript);
       const bytes = new TextEncoder().encode(markdown);
