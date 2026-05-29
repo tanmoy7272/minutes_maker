@@ -52,7 +52,7 @@
       }
 
       // If captions element is already mounted in DOM, captions are ON!
-      const el = document.querySelector('[jsname="tgaKEf"]');
+      const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
       if (el) {
         console.log("[MMP] Captions flow verified active via container presence.");
         clearInterval(autoCapTimer);
@@ -76,7 +76,7 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    const el = document.querySelector('[jsname="tgaKEf"]');
+    const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
     if (!el) return;
 
     const text = el.textContent.trim();
@@ -108,7 +108,7 @@
       return;
     }
 
-    const el = document.querySelector('[jsname="tgaKEf"]');
+    const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
     
     // If the captions container changed or was recreated, re-bind the captionsObserver
     if (el && activeObservedElement !== el) {
@@ -196,19 +196,18 @@
     }
   };
 
-  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Path & Controls Aware)
+  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Resilient Path-only checks)
   let hadMeetControls = false;
   
   const checkMeetingEndStatus = () => {
     if (!capturing) return;
     
     const isMeetSession = /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(window.location.pathname);
-    const hangupBtn = document.querySelector('button[aria-label*="leave" i], button[aria-label*="call" i]');
     
-    if (isMeetSession && hangupBtn) {
+    if (isMeetSession) {
       hadMeetControls = true;
-    } else if (!isMeetSession || (hadMeetControls && !hangupBtn)) {
-      // Session ended by leaving route or button unmounting
+    } else if (!isMeetSession && hadMeetControls) {
+      // Session ended solely by leaving the session path (ignores control bar auto-hiding)
       console.log("[MMP] Auto-Supervisor detected hangup/leave. Ending capture...");
       capturing = false;
       hadMeetControls = false;
@@ -235,7 +234,6 @@
   chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
     if (msg.action === "start") {
       capturing = true;
-      captureStartTime = Date.now();
       startAutoCaptionsFlow();
       startObserving();
       sendResponse({ ok: true });
