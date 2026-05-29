@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meet Minutes Pro</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Container for glassmorphism backdrop -->
+  <div class="app-container">
+    
+    <!-- ── Header ──────────────────────────────────────────────────────────── -->
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-icon animate-pulse-glow">
+          <!-- Sparkles/Zap Icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="zap-icon"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </div>
+        <div class="logo-text">
+          <h1>Meet Minutes Pro</h1>
+          <span class="logo-badge">v1.1</span>
+        </div>
+      </div>
+      <!-- Blinking Status Dot -->
+      <div class="header-status-container">
+        <div id="statusDot" class="status-dot idle-dot"></div>
+      </div>
+    </header>
+
+    <!-- ── Capture Board ────────────────────────────────────────────────── -->
+    <main class="main-board">
+      <div class="timer-card">
+        <span class="card-label">ELAPSED TIME</span>
+        <div class="timer-display" id="timer">00:00:00</div>
+        
+        <div class="metrics-row">
+          <div class="metric">
+            <span class="metric-label">CAPTURED LINES</span>
+            <span class="metric-value" id="lineCount">0 lines</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">CAPTIONS STATE</span>
+            <div id="captionState" class="status-pill state-off">
+              <span class="pill-dot"></span>
+              <span class="pill-text">OFF</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Turn on captions tooltip card -->
+      <div class="tooltip-card">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>Press <strong>C</strong> in Google Meet first to turn on captions!</span>
+      </div>
+
+      <!-- Action Buttons Row -->
+      <div class="control-actions">
+        <button class="btn btn-start" id="start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          Start Capture
+        </button>
+        <button class="btn btn-stop" id="stop" disabled>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>
+          Stop Capture
+        </button>
+      </div>
+
+      <!-- Clear/Reset Subtle Action -->
+      <div class="utility-actions">
+        <button class="btn-clear" id="clear" title="Reset captured transcript">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+          Reset Session
+        </button>
+      </div>
+    </main>
+
+    <!-- ── Summarizing Overlay Loader ──────────────────────────────────────── -->
+    <div class="summarize-overlay" id="summarizeOverlay">
+      <div class="overlay-content">
+        <div class="spinner-container">
+          <div class="magic-spinner"></div>
+          <div class="spinner-core">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner-icon"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>
+          </div>
+        </div>
+        <h3>Summarizing...</h3>
+        <p>Creating your perfect meeting minutes</p>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <span class="status-msg" id="overlayStatusMsg">Sending transcript to AI...</span>
+      </div>
+    </div>
+
+    <!-- ── Mandatory Update Overlay ──────────────────────────────────────── -->
+    <div class="summarize-overlay" id="updateOverlay" style="background: rgba(10, 10, 15, 0.95); opacity: 0; pointer-events: none; transition: opacity 0.3s ease;">
+      <div class="overlay-content" style="text-align: center; max-width: 260px; padding: 24px; display: flex; flex-direction: column; align-items: center;">
+        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </div>
+        <h3 style="color: #ef4444; font-size: 15px; font-weight: 800; margin: 0 0 8px 0; font-family: sans-serif; letter-spacing: -0.3px;">Update Required</h3>
+        <p style="color: #94a3b8; font-size: 11px; line-height: 1.5; margin: 0 0 20px 0; font-family: sans-serif;" id="updateMsg">You are running an outdated version. A mandatory update is required to continue.</p>
+        <a href="https://minutes-maker-five.vercel.app/#install-guide" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; text-decoration: none; font-size: 12px; font-weight: 700; padding: 10px 16px; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border-radius: 10px; border: none; font-family: sans-serif; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); transition: transform 0.2s ease;">
+          Download Latest ZIP
+        </a>
+      </div>
+    </div>
+
+    <!-- ── Onboarding Footer ───────────────────────────────────────────────── -->
+    <footer class="footer">
+      <a href="https://minutes-maker-five.vercel.app/" target="_blank" id="onboardingLink">
+        How to install
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="footer-arrow"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+      </a>
+    </footer>
+
+    <!-- ── Toast System ────────────────────────────────────────────────────── -->
+    <div class="toast-container" id="toastContainer"></div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
