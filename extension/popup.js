@@ -25,7 +25,12 @@
   const sendTabMessage = async (action) => {
     const tab = await getMeetTab();
     if (!tab) throw new Error("Google Meet tab not found");
-    return chrome.tabs.sendMessage(tab.id, { action });
+    try {
+      return await chrome.tabs.sendMessage(tab.id, { action });
+    } catch (err) {
+      console.error("[MMP] Connection error to Meet content script:", err);
+      throw new Error("Please refresh this Google Meet page to activate the extension!");
+    }
   };
 
   // Start Capture click
@@ -148,24 +153,30 @@
     if (tab) {
       chrome.tabs.sendMessage(tab.id, { action: "ping" }, (res) => {
         if (chrome.runtime.lastError) return; // Safely ignore if content script is not ready
-        if (res?.capturing) {
-          $start.disabled = true;
-          $stop.disabled = false;
-          $visualizer.classList.add("active-capturing");
+        if (res) {
           $lineCount.innerText = `${res.lines || 0} lines`;
           
-          if (res.lines > 0 || res.capturing) {
+          if (res.isCaptionsOn || res.lines > 0 || res.capturing) {
             $captionState.className = "status-pill state-on";
             $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">ON</span>';
+          } else {
+            $captionState.className = "status-pill state-off";
+            $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
           }
           
-          if (res.startTime) {
-            timerStart = res.startTime;
-            timerInterval = setInterval(() => {
-              const elapsed = Date.now() - timerStart;
-              const s = Math.floor(elapsed / 1000);
-              $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-            }, 1000);
+          if (res.capturing) {
+            $start.disabled = true;
+            $stop.disabled = false;
+            $visualizer.classList.add("active-capturing");
+            
+            if (res.startTime) {
+              timerStart = res.startTime;
+              timerInterval = setInterval(() => {
+                const elapsed = Date.now() - timerStart;
+                const s = Math.floor(elapsed / 1000);
+                $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+              }, 1000);
+            }
           }
         }
       });
