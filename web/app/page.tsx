@@ -308,7 +308,7 @@ export default function LandingPage() {
             <div className="h-9 w-9 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center font-bold text-sm mb-4">2</div>
             <h4 className="text-lg font-bold text-white">Enable Developer Mode</h4>
             <p className="mt-2 text-sm text-slate-400">
-              Open Google Chrome, navigate to the extensions page by copying the path, and toggle **"Developer mode"** ON in the top right.
+              Open Google Chrome, navigate to the extensions page by copying the path, and toggle <strong className="text-white">"Developer mode"</strong> ON in the top right.
             </p>
             
             {/* Copy Command */}
@@ -330,7 +330,7 @@ export default function LandingPage() {
             <div className="h-9 w-9 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20 flex items-center justify-center font-bold text-sm mb-4">3</div>
             <h4 className="text-lg font-bold text-white">Load Unpacked & Pin</h4>
             <p className="mt-2 text-sm text-slate-400">
-              Click **"Load unpacked"** in the top left, select the extracted `/extension` folder from Step 1, and pin **Meet Minutes Pro** to your extension bar!
+              Click <strong className="text-white">"Load unpacked"</strong> in the top left, select the extracted <code className="text-purple-300">/extension</code> folder from Step 1, and pin <strong className="text-white">Meet Minutes Pro</strong> to your extension bar!
             </p>
             <div className="mt-6 flex items-center gap-2 font-mono text-[10px] text-slate-500">
               <Pin className="h-3.5 w-3.5 text-pink-400" />
