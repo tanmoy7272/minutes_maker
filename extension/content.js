@@ -39,7 +39,7 @@
     }
   };
 
-  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via container or caption text presence
+  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via container or active text presence
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
     autoCapTimer = setInterval(() => {
@@ -49,8 +49,8 @@
         console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
-      // Check for standard wrapper, participant wrapper, or active caption text nodes in the DOM
-      const el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], .Th41Wd, .a4bIc, .CNusmb, .iTPLzd, .MoseM');
+      // Check for standard wrapper, participant wrapper, or active caption text nodes in DOM
+      const el = document.querySelector('.CNusmb, [jsname="tgaKEf"], [jsname="YSs4S"], [jsname="ME7oBc"]');
       if (el) {
         console.log("[MMP] Captions flow verified active via captions DOM elements.");
         clearInterval(autoCapTimer);
@@ -79,8 +79,8 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec to ensure ZERO CPU load
     lastCheckTime = now;
 
-    // Search for standard captions container OR participant card captions container
-    const el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], .Th41Wd, .a4bIc');
+    // Search standard wrapper, participant card wrapper, or active captions containers
+    const el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], [jsname="ME7oBc"]');
     if (!el) return;
 
     const text = el.textContent.trim();
@@ -105,20 +105,6 @@
       chrome.runtime.sendMessage({ event: "captionsDetected" });
     } catch (_) {}
   };
-
-  // 4. PERFORMANCE: Web Worker for background chunking
-  const workerCode = `
-    self.onmessage = function(e) {
-      const { text, size } = e.data;
-      const chunks = [];
-      for (let i = 0; i < text.length; i += size) {
-        chunks.push(text.substring(i, i + size));
-      }
-      self.postMessage(chunks);
-    };
-  `;
-  const blob = new Blob([workerCode], { type: "application/javascript" });
-  const chunkWorker = new Worker(URL.createObjectURL(blob));
 
   // 5. PERFORMANCE: Throttled Global document.body Observer (Immune to unmounting!)
   const startObserving = () => {
@@ -213,12 +199,15 @@
       clearInterval(autoCapTimer);
 
       const fullText = transcript.join("\n");
-      chunkWorker.onmessage = (e) => {
-        const chunks = e.data;
-        idb.del("mmp-recovery"); // Clear database upon dynamic end
-        sendResponse({ ok: true, transcript: fullText, summary: previousSummary, chunks });
-      };
-      chunkWorker.postMessage({ text: fullText, size: 11200 });
+      
+      // Perform string chunking synchronously on the main thread (100% immune to Vercel/Meet CSP blocks)
+      const chunks = [];
+      for (let i = 0; i < fullText.length; i += 11200) {
+        chunks.push(fullText.substring(i, i + 11200));
+      }
+
+      idb.del("mmp-recovery"); // Clear database upon dynamic end
+      sendResponse({ ok: true, transcript: fullText, summary: previousSummary, chunks });
     } else if (msg.action === "clear") {
       transcript = [];
       previousSummary = "";
