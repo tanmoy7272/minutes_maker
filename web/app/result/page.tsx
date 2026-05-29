@@ -195,7 +195,31 @@ export default function ResultPage() {
 
   const getOwnerInitials = (owner: string) => {
     if (!owner || owner === "Not mentioned" || owner === "—") return "?";
+    const parts = owner.trim().split(/\s+/);
+    if (parts.length > 1) {
+      return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    }
     return owner.substring(0, 2).toUpperCase();
+  };
+
+  const getOwnerAvatarStyle = (owner: string) => {
+    if (!owner || owner === "Not mentioned" || owner === "—") {
+      return "from-slate-600 to-slate-800 shadow-[0_0_10px_rgba(100,116,139,0.3)]";
+    }
+    let hash = 0;
+    for (let i = 0; i < owner.length; i++) {
+      hash = owner.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const gradients = [
+      "from-purple-500 to-indigo-600 shadow-[0_0_10px_rgba(139,92,246,0.35)]",
+      "from-pink-500 to-rose-600 shadow-[0_0_10px_rgba(236,72,153,0.35)]",
+      "from-emerald-400 to-teal-600 shadow-[0_0_10px_rgba(16,185,129,0.35)]",
+      "from-amber-400 to-orange-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]",
+      "from-blue-500 to-cyan-600 shadow-[0_0_10px_rgba(59,130,246,0.35)]",
+      "from-fuchsia-500 to-pink-600 shadow-[0_0_10px_rgba(217,70,239,0.35)]"
+    ];
+    const index = Math.abs(hash) % gradients.length;
+    return gradients[index];
   };
 
   // Helper to parse and render styled markdown elements
@@ -352,6 +376,10 @@ export default function ResultPage() {
       summaryText = summaryMatch[1].trim();
     }
 
+    const totalTasks = parsedActionItems.length;
+    const completedTasks = parsedActionItems.filter(t => t.completed).length;
+    const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
     return (
       <div className="space-y-8 animate-fade-in no-print">
         {/* Executive Summary Card at the top of the board */}
@@ -362,6 +390,28 @@ export default function ResultPage() {
           </h4>
           <p className="text-slate-300 text-sm leading-relaxed">{summaryText}</p>
         </div>
+
+        {/* Progress Tracker Card */}
+        {totalTasks > 0 && (
+          <div className="rounded-xl border border-blue-500/10 bg-gradient-to-r from-blue-950/10 via-slate-950/10 to-emerald-950/10 p-5 shadow-lg relative overflow-hidden backdrop-blur-sm">
+            <div className="absolute top-0 right-0 w-[30%] h-full bg-blue-500/5 blur-[50px] pointer-events-none" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
+              <span className="text-xs font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                <CheckSquare className="h-4 w-4 text-blue-400 animate-pulse" />
+                Action Items Progress Tracker
+              </span>
+              <span className="text-xs font-bold text-slate-300">
+                <strong className="text-white text-sm font-extrabold">{completedTasks}</strong> of <strong className="text-white text-sm font-extrabold">{totalTasks}</strong> tasks completed ({completionRate}%)
+              </span>
+            </div>
+            <div className="h-2.5 w-full bg-slate-900/60 rounded-full overflow-hidden border border-white/5 p-[1px]">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-500 ease-out shadow-[0_0_12px_rgba(59,130,246,0.6)]" 
+                style={{ width: `${completionRate}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Board Grid columns */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -449,7 +499,7 @@ export default function ResultPage() {
                       <div className="mt-3 flex items-center gap-4 flex-wrap">
                         {/* Owner Badge */}
                         <div className="flex items-center gap-1.5 text-xs text-slate-300">
-                          <div className="h-5 w-5 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center font-bold text-[9px] text-white">
+                          <div className={`h-6 w-6 rounded-full bg-gradient-to-tr ${getOwnerAvatarStyle(item.owner)} flex items-center justify-center font-bold text-[9px] text-white`}>
                             {getOwnerInitials(item.owner)}
                           </div>
                           <span className="font-semibold text-slate-400">Owner:</span>

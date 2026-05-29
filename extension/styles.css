@@ -174,6 +174,63 @@ body {
   margin: 4px 0;
 }
 
+/* Glowing Audio Capturing Visualizer */
+.visualizer-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  margin: 2px auto 8px auto;
+  padding: 0 10px;
+  transition: all 0.3s ease;
+}
+
+.visualizer-container .bar {
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  transition: all 0.3s ease;
+}
+
+/* Capturing Active State for Soundwave */
+.visualizer-container.active-capturing .bar {
+  background: linear-gradient(to bottom, #8b5cf6, #ec4899);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+}
+
+.visualizer-container.active-capturing .bar-1 {
+  animation: soundwave-pulse-1 0.8s ease-in-out infinite alternate;
+}
+.visualizer-container.active-capturing .bar-2 {
+  animation: soundwave-pulse-2 0.7s ease-in-out infinite alternate 0.1s;
+}
+.visualizer-container.active-capturing .bar-3 {
+  animation: soundwave-pulse-3 0.9s ease-in-out infinite alternate 0.2s;
+}
+.visualizer-container.active-capturing .bar-4 {
+  animation: soundwave-pulse-2 0.7s ease-in-out infinite alternate 0.3s;
+}
+.visualizer-container.active-capturing .bar-5 {
+  animation: soundwave-pulse-1 0.8s ease-in-out infinite alternate 0.4s;
+}
+
+@keyframes soundwave-pulse-1 {
+  0% { height: 4px; }
+  100% { height: 16px; }
+}
+
+@keyframes soundwave-pulse-2 {
+  0% { height: 4px; }
+  100% { height: 12px; }
+}
+
+@keyframes soundwave-pulse-3 {
+  0% { height: 4px; }
+  100% { height: 20px; }
+}
+
 .metrics-row {
   display: flex;
   align-items: center;

@@ -4,7 +4,7 @@
   const PORTAL_URL = "https://minutes-maker-five.vercel.app";
   const $ = (id) => document.getElementById(id);
   const $timer = $("timer"), $lineCount = $("lineCount"), $captionState = $("captionState");
-  const $start = $("start"), $stop = $("stop"), $clear = $("clear"), $overlay = $("summarizeOverlay");
+  const $start = $("start"), $stop = $("stop"), $clear = $("clear"), $overlay = $("summarizeOverlay"), $visualizer = $("visualizer");
 
   let timerInterval = null, timerStart = null;
 
@@ -34,6 +34,7 @@
       await sendTabMessage("start");
       $start.disabled = true;
       $stop.disabled = false;
+      $visualizer.classList.add("active-capturing");
       timerStart = Date.now();
       timerInterval = setInterval(() => {
         const elapsed = Date.now() - timerStart;
@@ -111,6 +112,7 @@
 
   const resetUI = () => {
     $overlay.classList.remove("active-overlay");
+    $visualizer.classList.remove("active-capturing");
     $start.disabled = false;
     $stop.disabled = true;
     $timer.innerText = "00:00:00";
@@ -147,6 +149,7 @@
         if (res?.capturing) {
           $start.disabled = true;
           $stop.disabled = false;
+          $visualizer.classList.add("active-capturing");
         }
       });
     }

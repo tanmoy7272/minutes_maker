@@ -13,12 +13,23 @@ import {
   ExternalLink,
   Shield,
   HelpCircle,
-  Play
+  Play,
+  CheckSquare,
+  Sparkles
 } from "lucide-react";
 
 export default function LandingPage() {
   const [copiedText, setCopiedText] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
+  const [demoViewMode, setDemoViewMode] = useState<"document" | "board">("document");
+  const [demoTasks, setDemoTasks] = useState([
+    { id: 1, task: "Figma dashboard mocks", owner: "Alex", dueDate: "Monday", completed: false, gradient: "from-pink-500 to-rose-600" },
+    { id: 2, task: "Finalize NextJS dashboard", owner: "Tanmoy", dueDate: "Monday", completed: false, gradient: "from-purple-500 to-indigo-600" }
+  ]);
+
+  const toggleDemoTask = (id: number) => {
+    setDemoTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
 
   const copyCommand = () => {
     navigator.clipboard.writeText("chrome://extensions");
@@ -140,15 +151,42 @@ export default function LandingPage() {
                 <div className="h-3 w-3 rounded-full bg-yellow-500" />
                 <div className="h-3 w-3 rounded-full bg-green-500" />
               </div>
-              <div className="rounded-lg bg-white/5 px-4 py-1 text-xs text-slate-400">
+              
+              {/* Tab Switcher for Interactive Demo */}
+              <div className="flex bg-white/5 p-0.5 rounded-lg border border-white/10 text-[10px] font-semibold">
+                <button
+                  onClick={() => setDemoViewMode("document")}
+                  className={`px-2.5 py-1 rounded transition-all ${
+                    demoViewMode === "document" 
+                      ? "bg-purple-600 text-white shadow-md" 
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Document View
+                </button>
+                <button
+                  onClick={() => setDemoViewMode("board")}
+                  className={`px-2.5 py-1 rounded transition-all ${
+                    demoViewMode === "board" 
+                      ? "bg-purple-600 text-white shadow-md" 
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Interactive Board
+                </button>
+              </div>
+
+              <div className="rounded-lg bg-white/5 px-4 py-1 text-xs text-slate-400 hidden sm:block">
                 meet-minutes-pro.vercel.app/result#encoded-minutes
               </div>
-              <div className="h-4 w-4" />
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="col-span-1 rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Live Captions Captured</h4>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+                  Live Captions Captured
+                </h4>
                 <div className="mt-3 space-y-3 font-mono text-[11px] text-slate-400">
                   <p className="border-l-2 border-purple-500/30 pl-2 py-0.5">
                     <span className="text-purple-400 font-bold">[10:04:12] Tanmoy:</span> Let's finalize the NextJS dashboard layout by Monday.
@@ -164,30 +202,94 @@ export default function LandingPage() {
               
               <div className="col-span-2 rounded-xl border border-white/[0.05] bg-slate-950/60 p-5">
                 <div className="flex items-center justify-between border-b border-white/[0.05] pb-2 mb-3">
-                  <h3 className="font-bold text-sm text-slate-200">🚀 Sprint Planning Meeting</h3>
+                  <h3 className="font-bold text-sm text-slate-200 flex items-center gap-1.5">
+                    🚀 Sprint Planning Meeting
+                  </h3>
                   <div className="flex gap-1.5">
                     <div className="h-2 w-2 rounded-full bg-purple-500" />
                     <div className="h-2 w-2 rounded-full bg-indigo-500" />
                   </div>
                 </div>
-                <div className="space-y-4 text-xs">
-                  <div>
-                    <h4 className="text-purple-400 font-semibold mb-1">## Summary</h4>
-                    <p className="text-slate-300 leading-relaxed">The team held a sprint planning session focusing on the new portal dashboard layout and data storage. Alex will design Figma mocks, while the team agreed to proceed with a fully serverless, zero-database architecture to maximize privacy.</p>
+
+                {demoViewMode === "document" ? (
+                  <div className="space-y-4 text-xs animate-fade-in">
+                    <div>
+                      <h4 className="text-purple-400 font-semibold mb-1">## Summary</h4>
+                      <p className="text-slate-300 leading-relaxed">The team held a sprint planning session focusing on the new portal dashboard layout and data storage. Alex will design Figma mocks, while the team agreed to proceed with a fully serverless, zero-database architecture to maximize privacy.</p>
+                    </div>
+                    <div>
+                      <h4 className="text-emerald-400 font-semibold mb-1">## Decisions</h4>
+                      <ul className="list-disc pl-4 text-slate-300 space-y-1">
+                        <li>Use a client-side hash based architecture instead of an SQL database for meetings. <span className="text-[10px] text-emerald-400 font-semibold border border-emerald-500/30 bg-emerald-500/10 px-1 py-0.5 rounded">10:05:02</span></li>
+                      </ul>
+                    </div>
+                    <div>
+                      <h4 className="text-blue-400 font-semibold mb-1">## Action Items</h4>
+                      <ul className="list-disc pl-4 text-slate-300 space-y-1">
+                        <li>Figma dashboards mocks — Owner: Alex — Due: Monday <span className="text-[10px] text-blue-400 font-semibold border border-blue-500/30 bg-blue-500/10 px-1 py-0.5 rounded">10:04:30</span></li>
+                        <li>Finalize NextJS dashboard — Owner: Tanmoy — Due: Monday <span className="text-[10px] text-blue-400 font-semibold border border-blue-500/30 bg-blue-500/10 px-1 py-0.5 rounded">10:04:12</span></li>
+                      </ul>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-emerald-400 font-semibold mb-1">## Decisions</h4>
-                    <ul className="list-disc pl-4 text-slate-300 space-y-1">
-                      <li>Use a client-side hash based architecture instead of an SQL database for meetings. <span className="text-[10px] text-emerald-400 font-semibold border border-emerald-500/30 bg-emerald-500/10 px-1 py-0.5 rounded">10:05:02</span></li>
-                    </ul>
+                ) : (
+                  <div className="space-y-4 text-xs animate-fade-in">
+                    {/* Tiny Progress Tracker inside Demo Mockup */}
+                    <div className="rounded-lg border border-blue-500/10 bg-gradient-to-r from-blue-950/20 to-emerald-950/20 p-2.5">
+                      <div className="flex justify-between items-center text-[10px] mb-1.5 font-bold">
+                        <span className="text-blue-400 uppercase tracking-widest flex items-center gap-1">
+                          <CheckSquare className="h-3 w-3" />
+                          Progress Tracker
+                        </span>
+                        <span className="text-slate-300">
+                          {demoTasks.filter(t => t.completed).length} of {demoTasks.length} tasks ({Math.round((demoTasks.filter(t => t.completed).length / demoTasks.length) * 100)}%)
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden p-[1px]">
+                        <div 
+                          className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
+                          style={{ width: `${(demoTasks.filter(t => t.completed).length / demoTasks.length) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {demoTasks.map(t => (
+                        <div 
+                          key={t.id} 
+                          className={`rounded-lg border p-2.5 transition-all duration-300 ${
+                            t.completed 
+                              ? "border-white/5 bg-white/[0.01] opacity-50" 
+                              : "border-blue-500/10 bg-blue-950/5 hover:bg-blue-950/10 hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5"
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <button 
+                              onClick={() => toggleDemoTask(t.id)}
+                              className="text-blue-400 mt-0.5 cursor-pointer"
+                            >
+                              {t.completed ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" className="h-4.5 w-4.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                              ) : (
+                                <div className="h-4 w-4 border border-slate-500 rounded hover:border-blue-400 transition-colors" />
+                              )}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <h5 className={`font-bold text-xs text-white leading-snug truncate ${t.completed ? "line-through text-slate-500" : ""}`}>
+                                {t.task}
+                              </h5>
+                              <div className="mt-2 flex items-center gap-1.5">
+                                <div className={`h-4.5 w-4.5 rounded-full bg-gradient-to-tr ${t.gradient} flex items-center justify-center font-black text-[7px] text-white`}>
+                                  {t.owner.charAt(0)}
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-bold">{t.owner}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-blue-400 font-semibold mb-1">## Action Items</h4>
-                    <ul className="list-disc pl-4 text-slate-300 space-y-1">
-                      <li>Figma dashboards mocks — Owner: Alex — Due: Monday <span className="text-[10px] text-blue-400 font-semibold border border-blue-500/30 bg-blue-500/10 px-1 py-0.5 rounded">10:04:30</span></li>
-                    </ul>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
