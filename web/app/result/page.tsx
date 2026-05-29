@@ -12,7 +12,12 @@ import {
   FileText,
   Clock,
   Sparkles,
-  Edit2
+  Edit2,
+  LayoutGrid,
+  CheckSquare,
+  Square,
+  User,
+  Quote
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -23,6 +28,12 @@ export default function ResultPage() {
   const [meetingDate, setMeetingDate] = useState("");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [copied, setCopied] = useState(false);
+  
+  // Sassy Interactive States
+  const [viewMode, setViewMode] = useState<"document" | "board">("document");
+  const [parsedDecisions, setParsedDecisions] = useState<Array<{ decision: string; timestamp: string; rationale: string }>>([]);
+  const [parsedActionItems, setParsedActionItems] = useState<Array<{ id: number; task: string; owner: string; dueDate: string; evidence: string; completed: boolean }>>([]);
+  const [individualCopiedTask, setIndividualCopiedTask] = useState<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -72,6 +83,72 @@ export default function ResultPage() {
     }
   }, []);
 
+  // On-the-fly parser converting markdown string back to interactive JSON data structures
+  useEffect(() => {
+    if (!markdown) return;
+
+    try {
+      // 1. Parse Decisions
+      const decisionsSection = markdown.match(/## Decisions([\s\S]*?)(?=##|$)/);
+      const decs: Array<{ decision: string; timestamp: string; rationale: string }> = [];
+      if (decisionsSection && decisionsSection[1]) {
+        const lines = decisionsSection[1].split("\n").map(l => l.trim()).filter(Boolean);
+        lines.forEach(line => {
+          if (line.startsWith("- ")) {
+            const decMatch = line.match(/^-\s+\*\*([^*]+)\*\*.*?Rational[e]?:?\s*(.*)$/i);
+            const timeMatch = line.match(/\(([^)]+)\)/);
+            if (decMatch) {
+              decs.push({
+                decision: decMatch[1].trim(),
+                timestamp: timeMatch ? timeMatch[1].trim() : "",
+                rationale: decMatch[2] ? decMatch[2].trim() : "Not mentioned"
+              });
+            } else {
+              const cleanLine = line.replace(/^-\s+/, "");
+              decs.push({ decision: cleanLine, timestamp: "", rationale: "Not mentioned" });
+            }
+          }
+        });
+      }
+      setParsedDecisions(decs.filter(d => d.decision !== "—" && d.decision !== "- —"));
+
+      // 2. Parse Action Items
+      const actionSection = markdown.match(/## Action Items([\s\S]*?)(?=##|$)/);
+      const actions: Array<{ id: number; task: string; owner: string; dueDate: string; evidence: string; completed: boolean }> = [];
+      if (actionSection && actionSection[1]) {
+        const textBlocks = actionSection[1].split(/(?=-\s+\*\*)/);
+        let idCounter = 1;
+        textBlocks.forEach(block => {
+          const trimmed = block.trim();
+          if (!trimmed || trimmed.startsWith("- —")) return;
+
+          const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
+          const firstLine = lines[0];
+          const secondLine = lines[1] || "";
+
+          const taskMatch = firstLine.match(/^-\s+\*\*([^*]+)\*\*/);
+          const ownerMatch = firstLine.match(/Owner:\s*([^\s—]+)/i) || firstLine.match(/Owner:\s*([^—\n]+)/i);
+          const dueMatch = firstLine.match(/Due:\s*([^\s—]+)/i) || firstLine.match(/Due:\s*([^\n]+)/i);
+          const evMatch = secondLine.match(/\*Evidence:\s*\"([^\"]+)\"\*/i);
+
+          if (taskMatch) {
+            actions.push({
+              id: idCounter++,
+              task: taskMatch[1].trim(),
+              owner: ownerMatch ? ownerMatch[1].trim().replace(/(—|$)/g, "") : "Not mentioned",
+              dueDate: dueMatch ? dueMatch[1].trim() : "Not mentioned",
+              evidence: evMatch ? evMatch[1].trim() : "Verbatim evidence not recorded",
+              completed: false
+            });
+          }
+        });
+      }
+      setParsedActionItems(actions);
+    } catch (err) {
+      console.error("[MMP] Board parsing failed:", err);
+    }
+  }, [markdown]);
+
   const handleCopy = () => {
     if (!markdown) return;
     navigator.clipboard.writeText(markdown);
@@ -86,7 +163,6 @@ export default function ResultPage() {
     const link = document.createElement("a");
     link.href = url;
     
-    // Format title for filename
     const sanitizedTitle = meetingTitle
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
@@ -104,26 +180,41 @@ export default function ResultPage() {
     }
   };
 
-  // Helper to parse and render styled markdown elements with custom pills and section classes
+  const toggleTaskCompleted = (id: number) => {
+    setParsedActionItems(prev => prev.map(item => 
+      item.id === id ? { ...item, completed: !item.completed } : item
+    ));
+  };
+
+  const handleCopyIndividualTask = (item: any) => {
+    const text = `📋 Task: ${item.task}\n👤 Owner: ${item.owner}\n📅 Due: ${item.dueDate}\n💬 Evidence: "${item.evidence}"`;
+    navigator.clipboard.writeText(text);
+    setIndividualCopiedTask(item.id);
+    setTimeout(() => setIndividualCopiedTask(null), 1500);
+  };
+
+  const getOwnerInitials = (owner: string) => {
+    if (!owner || owner === "Not mentioned" || owner === "—") return "?";
+    return owner.substring(0, 2).toUpperCase();
+  };
+
+  // Helper to parse and render styled markdown elements
   const renderFormattedMarkdown = (rawMarkdown: string) => {
     if (!rawMarkdown) return null;
 
-    // Clean up title header if we are already displaying it at the top
     let content = rawMarkdown;
     if (content.startsWith("# ")) {
       const lines = content.split("\n");
-      lines.shift(); // remove first header line
+      lines.shift();
       content = lines.join("\n");
     }
 
-    // Split markdown into logical blocks to parse
     const blocks = content.split(/\n(?=##\s+)/);
 
     return blocks.map((block, idx) => {
       const trimmedBlock = block.trim();
       if (!trimmedBlock) return null;
 
-      // Identify section type
       let sectionClass = "border-l-4 border-slate-700 pl-4 py-1 my-6";
       let sectionStyleType = "default";
       let headerText = "";
@@ -145,41 +236,34 @@ export default function ResultPage() {
         sectionStyleType = "key-points";
         headerText = "Key Points";
       } else {
-        // Generic double header
         const headerMatch = trimmedBlock.match(/^##\s+(.+)$/m);
         if (headerMatch) {
           headerText = headerMatch[1].trim();
         }
       }
 
-      // Extract content lines skipping the ## header line itself
       const lines = trimmedBlock.split("\n");
       if (lines[0].startsWith("## ")) {
         lines.shift();
       }
       const sectionContent = lines.join("\n").trim();
 
-      // Render lines within this section
       const renderedLines = sectionContent.split("\n").map((line, lineIdx) => {
         let text = line.trim();
         if (!text) return <div key={lineIdx} className="h-2" />;
 
-        // Check if list bullet
         const isBullet = text.startsWith("- ") || text.startsWith("* ");
         if (isBullet) {
           text = text.substring(2);
         }
 
-        // Format bold text (**text**)
         let formattedText: React.ReactNode[] = [];
         const boldRegex = /\*\*([^*]+)\*\*/g;
         let lastIndex = 0;
         let match;
 
-        // Extract timestamps like [00:12:34] or (00:12:34) or 00:12:34
         const timestampRegex = /(\[?\b\d{2}:\d{2}:\d{2}\b\]?)/g;
 
-        // Process bold tags and then process timestamps inside the segments
         const processTextSegments = (rawSegment: string, segmentKey: string) => {
           const parts = rawSegment.split(timestampRegex);
           return parts.map((part, pIdx) => {
@@ -223,7 +307,6 @@ export default function ResultPage() {
           formattedText.push(...processTextSegments(remainingPart, `plain-end`));
         }
 
-        // Render bullet list item or paragraph
         if (isBullet) {
           return (
             <li key={lineIdx} className="text-slate-300 leading-relaxed text-sm mb-2 list-none flex items-start">
@@ -260,6 +343,161 @@ export default function ResultPage() {
     });
   };
 
+  // Render the gorgeous tech-savvy Kanban board view
+  const renderBoardView = () => {
+    // Extract executive summary text only
+    let summaryText = "No summary parsed.";
+    const summaryMatch = markdown.match(/## Summary([\s\S]*?)(?=##|$)/);
+    if (summaryMatch && summaryMatch[1]) {
+      summaryText = summaryMatch[1].trim();
+    }
+
+    return (
+      <div className="space-y-8 animate-fade-in no-print">
+        {/* Executive Summary Card at the top of the board */}
+        <div className="rounded-xl border border-purple-500/20 bg-gradient-to-tr from-purple-500/5 to-indigo-500/5 p-5 shadow-lg">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2 flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            Executive Summary
+          </h4>
+          <p className="text-slate-300 text-sm leading-relaxed">{summaryText}</p>
+        </div>
+
+        {/* Board Grid columns */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          
+          {/* COLUMN 1: DECISIONS */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+              <h4 className="text-xs font-black uppercase tracking-widest text-emerald-400 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                Key Decisions ({parsedDecisions.length})
+              </h4>
+            </div>
+
+            {parsedDecisions.length === 0 ? (
+              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 text-center text-slate-500 text-xs italic">
+                No key decisions recorded in this session.
+              </div>
+            ) : (
+              parsedDecisions.map((dec, i) => (
+                <div key={i} className="group relative rounded-xl border border-emerald-500/10 bg-emerald-950/5 hover:bg-emerald-950/10 p-4 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5">
+                  <div className="absolute top-4 right-4">
+                    {dec.timestamp && (
+                      <span className="timestamp-pill timestamp-pill-green">
+                        <Clock className="h-3 w-3 mr-1 inline" />
+                        {dec.timestamp}
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="font-bold text-sm text-white pr-16 leading-snug">
+                    {dec.decision}
+                  </h5>
+                  <div className="mt-3 pt-3 border-t border-emerald-500/10 text-xs">
+                    <span className="text-emerald-400/80 font-bold uppercase tracking-wider block mb-1 text-[10px]">Rationale</span>
+                    <p className="text-slate-400 italic">"{dec.rationale}"</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* COLUMN 2: ACTION ITEMS (CHECKABLE TASK CARDS) */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
+              <h4 className="text-xs font-black uppercase tracking-widest text-blue-400 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                Action Tasks ({parsedActionItems.length})
+              </h4>
+            </div>
+
+            {parsedActionItems.length === 0 ? (
+              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 text-center text-slate-500 text-xs italic">
+                No actionable tasks recorded in this session.
+              </div>
+            ) : (
+              parsedActionItems.map((item) => (
+                <div 
+                  key={item.id} 
+                  className={`group relative rounded-xl border transition-all duration-300 p-4 ${
+                    item.completed 
+                      ? "border-white/5 bg-white/[0.01] opacity-50" 
+                      : "border-blue-500/10 bg-blue-950/5 hover:bg-blue-950/10 hover:shadow-lg hover:shadow-blue-500/5"
+                  }`}
+                >
+                  {/* Task Header with interactive Checkbox */}
+                  <div className="flex items-start gap-3">
+                    <button 
+                      onClick={() => toggleTaskCompleted(item.id)}
+                      className="mt-0.5 rounded text-blue-400 hover:text-white transition-colors"
+                    >
+                      {item.completed ? (
+                        <CheckSquare className="h-5 w-5 text-emerald-400 fill-emerald-500/10" />
+                      ) : (
+                        <Square className="h-5 w-5 text-slate-500 hover:border-blue-400" />
+                      )}
+                    </button>
+
+                    <div className="flex-1">
+                      <h5 className={`font-bold text-sm text-white leading-snug transition-all ${
+                        item.completed ? "line-through text-slate-500" : ""
+                      }`}>
+                        {item.task}
+                      </h5>
+
+                      {/* Card meta badges */}
+                      <div className="mt-3 flex items-center gap-4 flex-wrap">
+                        {/* Owner Badge */}
+                        <div className="flex items-center gap-1.5 text-xs text-slate-300">
+                          <div className="h-5 w-5 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center font-bold text-[9px] text-white">
+                            {getOwnerInitials(item.owner)}
+                          </div>
+                          <span className="font-semibold text-slate-400">Owner:</span>
+                          <span className="text-white font-bold">{item.owner}</span>
+                        </div>
+
+                        {/* Due Date Badge */}
+                        <div className="flex items-center gap-1 text-xs text-slate-400">
+                          <Calendar className="h-3.5 w-3.5 text-purple-400" />
+                          <span className="font-semibold">Due:</span>
+                          <span className="text-white font-bold">{item.dueDate}</span>
+                        </div>
+                      </div>
+
+                      {/* Verbatim Evidence Section */}
+                      {item.evidence && (
+                        <div className="mt-3 bg-black/30 border-l-2 border-purple-500/20 rounded p-2.5 text-xs relative overflow-hidden group-hover:border-purple-500/40 transition-colors">
+                          <Quote className="absolute right-2 bottom-1 h-10 w-10 text-white/[0.02] pointer-events-none" />
+                          <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider block mb-1">Verbatim Evidence</span>
+                          <p className="text-slate-400 italic">"{item.evidence}"</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Individual Task Copy buttons */}
+                  <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
+                    <button
+                      onClick={() => handleCopyIndividualTask(item)}
+                      className="p-1.5 rounded bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                      title="Copy task details"
+                    >
+                      {individualCopiedTask === item.id ? (
+                        <Check className="h-3.5 w-3.5 text-green-400" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (!mounted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#030303] text-slate-400 font-mono text-xs">
@@ -268,7 +506,6 @@ export default function ResultPage() {
     );
   }
 
-  // Empty state if no markdown is decoded
   if (!markdown) {
     return (
       <div className="relative flex min-h-screen flex-col items-center justify-center px-4">
@@ -395,6 +632,34 @@ export default function ResultPage() {
           </div>
         </div>
 
+        {/* View Mode Segmented Switcher (No Print) */}
+        <div className="flex border-b border-white/[0.05] pb-5 mb-6 no-print">
+          <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+            <button
+              onClick={() => setViewMode("document")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === "document" 
+                  ? "bg-purple-600 text-white shadow-lg shadow-purple-500/15" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Document View
+            </button>
+            <button
+              onClick={() => setViewMode("board")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === "board" 
+                  ? "bg-purple-600 text-white shadow-lg shadow-purple-500/15" 
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Interactive Board
+            </button>
+          </div>
+        </div>
+
         {/* Print Only Header */}
         <div className="hidden print:block mb-8">
           <h1 className="text-3xl font-bold text-black border-b pb-3 mb-2">{meetingTitle}</h1>
@@ -404,9 +669,13 @@ export default function ResultPage() {
           </div>
         </div>
 
-        {/* Formatted Content Container */}
+        {/* Content Container (Standard Render or Kanban Board Render) */}
         <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-slate-300 prose-strong:text-white prose-ul:list-disc">
-          {renderFormattedMarkdown(markdown)}
+          {viewMode === "document" ? (
+            renderFormattedMarkdown(markdown)
+          ) : (
+            renderBoardView()
+          )}
         </div>
       </main>
     </div>
