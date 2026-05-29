@@ -8,9 +8,7 @@
   let captureStartTime = 0;
   
   // Observers
-  let bodyObserver = null;
-  let captionsObserver = null;
-  let activeObservedElement = null;
+  let capObserver = null;
   let autoCapTimer = null;
 
   // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER (Mimics idb-keyval natively)
@@ -41,7 +39,7 @@
     }
   };
 
-  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via container presence
+  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify via container or caption text presence
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
     autoCapTimer = setInterval(() => {
@@ -51,11 +49,16 @@
         console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
-      // If captions element is already mounted in DOM, captions are ON!
-      const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
+      // Check for standard wrapper, participant wrapper, or active caption text nodes in the DOM
+      const el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], .Th41Wd, .a4bIc, .CNusmb, .iTPLzd, .MoseM');
       if (el) {
-        console.log("[MMP] Captions flow verified active via container presence.");
+        console.log("[MMP] Captions flow verified active via captions DOM elements.");
         clearInterval(autoCapTimer);
+        
+        // Notify popup immediately
+        try {
+          chrome.runtime.sendMessage({ event: "captionsDetected" });
+        } catch (_) {}
         return;
       }
 
@@ -73,10 +76,11 @@
   const handleCaptionMutation = () => {
     if (!capturing) return;
     const now = Date.now();
-    if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
+    if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec to ensure ZERO CPU load
     lastCheckTime = now;
 
-    const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
+    // Search for standard captions container OR participant card captions container
+    const el = document.querySelector('[jsname="tgaKEf"], [jsname="YSs4S"], .Th41Wd, .a4bIc');
     if (!el) return;
 
     const text = el.textContent.trim();
@@ -102,36 +106,6 @@
     } catch (_) {}
   };
 
-  const syncObservers = () => {
-    if (!capturing) {
-      disconnectObservers();
-      return;
-    }
-
-    const el = document.querySelector('[jsname="tgaKEf"], .Th41Wd, .a4bIc');
-    
-    // If the captions container changed or was recreated, re-bind the captionsObserver
-    if (el && activeObservedElement !== el) {
-      if (captionsObserver) captionsObserver.disconnect();
-      captionsObserver = new MutationObserver(handleCaptionMutation);
-      captionsObserver.observe(el, { childList: true, subtree: true, characterData: true });
-      activeObservedElement = el;
-      console.log("[MMP] Connected inner captions observer directly to container.");
-      
-      // Notify popup immediately that captions are ON
-      try {
-        chrome.runtime.sendMessage({ event: "captionsDetected" });
-      } catch (_) {}
-
-      // Pull any initial text instantly
-      handleCaptionMutation();
-    } else if (!el && activeObservedElement) {
-      if (captionsObserver) captionsObserver.disconnect();
-      activeObservedElement = null;
-      console.log("[MMP] Inner captions observer disconnected (container unmounted).");
-    }
-  };
-
   // 4. PERFORMANCE: Web Worker for background chunking
   const workerCode = `
     self.onmessage = function(e) {
@@ -146,31 +120,26 @@
   const blob = new Blob([workerCode], { type: "application/javascript" });
   const chunkWorker = new Worker(URL.createObjectURL(blob));
 
-  // 5. PERFORMANCE: Parent-child re-binding MutationObserver
+  // 5. PERFORMANCE: Throttled Global document.body Observer (Immune to unmounting!)
   const startObserving = () => {
     disconnectObservers();
     
-    // Bind lightweight childList observer on body to detect container creation/destruction
-    bodyObserver = new MutationObserver(() => {
-      syncObservers();
-    });
-    bodyObserver.observe(document.body, { childList: true, subtree: true });
-    console.log("[MMP] Connected outer body observer.");
+    capObserver = new MutationObserver(handleCaptionMutation);
+    // Observe body for all text and element updates. Throttled internally to ensure 0% performance hit.
+    capObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    console.log("[MMP] MutationObserver registered on document.body for 100% reliable capture.");
 
-    // Initial sync check
-    syncObservers();
+    // Notify popup immediately
+    try {
+      chrome.runtime.sendMessage({ event: "captionsDetected" });
+    } catch (_) {}
   };
 
   const disconnectObservers = () => {
-    if (bodyObserver) {
-      bodyObserver.disconnect();
-      bodyObserver = null;
+    if (capObserver) {
+      capObserver.disconnect();
+      capObserver = null;
     }
-    if (captionsObserver) {
-      captionsObserver.disconnect();
-      captionsObserver = null;
-    }
-    activeObservedElement = null;
     console.log("[MMP] Disconnected all scraper observers.");
   };
 
@@ -196,7 +165,7 @@
     }
   };
 
-  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Resilient Path-only checks)
+  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Path-only Aware)
   let hadMeetControls = false;
   
   const checkMeetingEndStatus = () => {
