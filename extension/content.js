@@ -40,26 +40,25 @@
     }
   };
 
-  // 2. AUTO-CAPTIONS: MutationObserver to click every 1.5s for 45s, verify with aria-live="polite"
+  // 2. AUTO-CAPTIONS: Click every 1.5s for 45s, verify with button pressed state
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
     autoCapTimer = setInterval(() => {
       elapsed += 1500;
       if (elapsed > 45000) {
         clearInterval(autoCapTimer);
+        console.log("[MMP] Auto-captions flow timeout (45s reached).");
       }
 
       const btn = document.querySelector('button[aria-label*="captions" i]');
-      if (btn && btn.getAttribute("aria-pressed") !== "true") {
-        btn.click();
-        console.log("[MMP] Clicked captions button automatically.");
-      }
-
-      // Verify captions are active
-      const liveDiv = document.querySelector('div[aria-live="polite"]');
-      if (liveDiv) {
-        console.log("[MMP] Captions flow verified active.");
-        clearInterval(autoCapTimer);
+      if (btn) {
+        if (btn.getAttribute("aria-pressed") !== "true") {
+          btn.click();
+          console.log("[MMP] Clicked captions button automatically.");
+        } else {
+          console.log("[MMP] Captions flow verified active via button state.");
+          clearInterval(autoCapTimer);
+        }
       }
     }, 1500);
   };
@@ -73,8 +72,8 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    // Observe ONE container: aria-live="polite" or [jsname="tgaKEf"]
-    const el = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]');
+    // Observe ONLY the real captions container
+    const el = document.querySelector('[jsname="tgaKEf"]');
     if (!el) return;
 
     // Capture only when captions block is finalized (opacity=1)
@@ -118,10 +117,10 @@
   const blob = new Blob([workerCode], { type: "application/javascript" });
   const chunkWorker = new Worker(URL.createObjectURL(blob));
 
-  // 5. PERFORMANCE: Keep observers active in background
+  // 5. PERFORMANCE: Keep observers active on actual captions container
   const startObserving = () => {
     capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
+    const target = document.querySelector('[jsname="tgaKEf"]') || document.body;
     capObserver.observe(target, { childList: true, subtree: true, characterData: true });
   };
 
