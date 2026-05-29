@@ -3,13 +3,11 @@
  *
  * Responsibilities:
  * 1. On first install, open the Vercel landing page for onboarding
- * 2. Set version in storage on install/update
- * 3. Clean up capture state when the active Google Meet tab is closed
- * 4. Run a 1-minute health-check alarm that pings the content script
+ * 2. Clean up capture state when the active Google Meet tab is closed
+ * 3. Run a 1-minute health-check alarm that pings the active tab
+ * 4. Process background summarization and launch results tab on meeting end
  */
 
-// ── Configuration ────────────────────────────────────────────────────────────
-// Placeholder URL — User will replace after Vercel deployment
 const PORTAL_URL = "https://minutes-maker-five.vercel.app/";
 
 // ── Install / Update ─────────────────────────────────────────────────────────
@@ -19,7 +17,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   // Create recurring health-check alarm (fires every 1 minute)
   chrome.alarms.create("healthCheck", { periodInMinutes: 1 });
 
-  // On first install, automatically open the Vercel landing page for onboarding instructions
+  // On first install, automatically open the Vercel landing page
   if (details.reason === "install") {
     chrome.tabs.create({ url: PORTAL_URL });
   }
@@ -66,4 +64,57 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       }
     );
   });
+});
+
+// ── Background API Summarizer (Force Upgrade safe) ───────────────────────────
+const callSummarizeAPI = async (prevSummary, transcript, isRetry = false) => {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  try {
+    const res = await fetch(`${PORTAL_URL}api/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        previousSummary: prevSummary, 
+        chunk: transcript,
+        version: "1.1.0"
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(t);
+    
+    // Ignore updates check in background or let it launch
+    if (res.status === 426) {
+      throw new Error("Update required");
+    }
+    
+    if (!res.ok) throw new Error("Server rejected request");
+    const data = await res.json();
+    return data.markdown || "";
+  } catch (e) {
+    clearTimeout(t);
+    if (e.message === "Update required") throw e;
+    if (!isRetry) return callSummarizeAPI(prevSummary, transcript, true); // Retry once
+    throw e;
+  }
+};
+
+// ── Message router for automated stop & redirect ────────────────────────────
+chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
+  if (msg.action === "autoStopAndSummarize") {
+    console.log("[Meet Minutes Pro] Background worker received auto-stop trigger. Summarizing...");
+    
+    callSummarizeAPI(msg.summary, msg.transcript)
+      .then((markdown) => {
+        const encoded = btoa(unescape(encodeURIComponent(markdown)));
+        chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
+        sendResponse({ ok: true });
+      })
+      .catch((err) => {
+        console.error("[Meet Minutes Pro] Auto-summarization failed:", err);
+        sendResponse({ ok: false, error: err.message });
+      });
+      
+    return true; // Keep channel open async
+  }
 });

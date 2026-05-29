@@ -146,6 +146,42 @@
     }
   };
 
+  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR
+  let hadMeetControls = false;
+  
+  const checkMeetingEndStatus = () => {
+    if (!capturing) return;
+    
+    // Target Google Meet's active hangup button
+    const hangupBtn = document.querySelector('button[aria-label*="leave" i], button[aria-label*="call" i]');
+    
+    if (hangupBtn) {
+      hadMeetControls = true;
+    } else if (hadMeetControls) {
+      // The call was active, but controls are now unmounted (meeting left/ended!)
+      console.log("[MMP] Auto-Supervisor detected hangup/leave. Ending capture...");
+      capturing = false;
+      hadMeetControls = false;
+      
+      if (capObserver) capObserver.disconnect();
+      clearInterval(autoCapTimer);
+      
+      const fullText = transcript.join("\n");
+      idb.del("mmp-recovery"); // Clear recovery buffer
+      
+      if (transcript.length > 0) {
+        // Send directly to background service worker to summarize and launch tab
+        chrome.runtime.sendMessage({ 
+          action: "autoStopAndSummarize", 
+          transcript: fullText, 
+          summary: previousSummary 
+        });
+      }
+    }
+  };
+  
+  setInterval(checkMeetingEndStatus, 2500); // Check every 2.5 seconds
+
   // 7. Message Router for popup.js triggers
   chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
     if (msg.action === "start") {
