@@ -45,7 +45,7 @@ export default function LandingPage() {
     },
     {
       q: "Do I need to enable Google Meet captions?",
-      a: "Yes. The extension works by reading the live caption DOM node inside your active Google Meet tab. Simply press 'C' or click the caption icon in Google Meet before starting capture."
+      a: "No, you don't need to do anything! When you click 'Start Capture' inside the extension panel, our smart engine automatically turns on Google Meet captions and configures the recording stream under the hood."
     }
   ];
 
@@ -233,7 +233,7 @@ export default function LandingPage() {
             </div>
             <h3 className="mt-6 text-xl font-bold text-white">2. Capture</h3>
             <p className="mt-3 text-slate-400 leading-relaxed text-sm">
-              Open Google Meet, turn captions ON (press C), open the extension popup and click "Start Capture". It automatically records speakers.
+              Open Google Meet, open the extension popup and click "Start Capture". The extension automatically handles turning captions ON and records speakers!
             </p>
             {/* Step illustration */}
             <div className="mt-6 rounded-lg bg-black/40 border border-white/5 p-4 flex flex-col justify-center h-28">
