@@ -120,7 +120,7 @@ export default function LandingPage() {
           </h1>
           
           <p className="mt-6 text-lg text-slate-400 sm:text-xl max-w-2xl mx-auto">
-            Zero databases. Zero user API keys. Absolute privacy. Capture speaker-attributed captions and generate beautifully formatted Markdown summaries instantly.
+            Zero databases. Zero user API keys. Absolute privacy. Mix tab audio and your microphone in high-fidelity to generate beautifully formatted Markdown summaries instantly.
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
@@ -185,7 +185,7 @@ export default function LandingPage() {
               <div className="col-span-1 rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
-                  Live Captions Captured
+                  Live Audio Ingested
                 </h4>
                 <div className="mt-3 space-y-3 font-mono text-[11px] text-slate-400">
                   <p className="border-l-2 border-purple-500/30 pl-2 py-0.5">
@@ -335,7 +335,7 @@ export default function LandingPage() {
             </div>
             <h3 className="mt-6 text-xl font-bold text-white">2. Capture</h3>
             <p className="mt-3 text-slate-400 leading-relaxed text-sm">
-              Open Google Meet, open the extension popup and click "Start Capture". The extension automatically handles turning captions ON and records speakers!
+              Open Google Meet, open the extension popup and click "Start Capture". The extension records the meeting tab audio output and mixes it with your microphone automatically!
             </p>
             {/* Step illustration */}
             <div className="mt-6 rounded-lg bg-black/40 border border-white/5 p-4 flex flex-col justify-center h-28">
@@ -344,7 +344,7 @@ export default function LandingPage() {
                   <div className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
                   <span className="text-[8px] text-slate-500 font-mono">CAPTURING</span>
                 </div>
-                <span className="text-[10px] text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-1 rounded font-bold">Captions ON</span>
+                <span className="text-[10px] text-emerald-400 border border-emerald-500/20 bg-emerald-500/10 px-1 rounded font-bold">Audio Mixed</span>
               </div>
               <div className="space-y-1.5">
                 <div className="h-2 w-[70%] bg-slate-800 rounded-full" />

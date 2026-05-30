@@ -569,7 +569,7 @@ export default function ResultPage() {
             No Meeting Minutes Detected
           </h2>
           <p className="mt-3 text-slate-400 text-sm leading-relaxed">
-            Please host or join a Google Meet, open our extension popup, activate caption capture, and press "Stop Capture" when finished to view your structured meeting minutes here.
+            Please host or join a Google Meet, open our extension popup, activate audio capture, and press "Stop Capture" when finished to view your structured meeting minutes here.
           </p>
           <div className="mt-8 flex flex-col gap-3 w-full sm:flex-row">
             <a
