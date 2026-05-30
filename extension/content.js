@@ -9,7 +9,6 @@
   
   // Observers
   let capObserver = null;
-  let autoCapTimer = null;
 
   // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER
   const DB_NAME = "MMP_RECOVERY_DB";
@@ -39,71 +38,8 @@
     }
   };
 
-  // 2. AUTO-CAPTIONS: Click captions button every 1.5s for up to 45s, verify with aria-live="polite"
-  const startAutoCaptionsFlow = () => {
-    let elapsed = 0;
-    autoCapTimer = setInterval(() => {
-      elapsed += 1500;
-      if (elapsed > 45000) {
-        clearInterval(autoCapTimer);
-        console.log("[MMP] Auto-captions flow timeout (45s reached).");
-        return;
-      }
-
-      const btn = document.querySelector('button[aria-label*="captions" i], button[aria-label*="(c)"], button[data-tooltip*="(c)"]');
-      if (btn && btn.getAttribute("aria-pressed") !== "true") {
-        btn.click();
-        console.log("[MMP] Clicked captions button automatically.");
-      }
-
-      // Verify captions are active via the ORIGINAL working selector
-      const liveDiv = document.querySelector('div[aria-live="polite"]');
-      if (liveDiv) {
-        console.log("[MMP] Captions flow verified active via aria-live='polite'.");
-        clearInterval(autoCapTimer);
-        try { chrome.runtime.sendMessage({ event: "captionsDetected" }); } catch (_) {}
-      }
-    }, 1500);
-  };
-
-  // Suffix-prefix overlap merging algorithm to eliminate progressive duplicates
-  const cleanAndMergeTranscript = (currentTranscript, newText) => {
-    if (currentTranscript.length === 0) {
-      return [newText];
-    }
-    
-    const lastLine = currentTranscript[currentTranscript.length - 1];
-    
-    // Quick exit if exact match
-    if (lastLine === newText) {
-      return currentTranscript;
-    }
-    
-    const minLen = Math.min(lastLine.length, newText.length);
-    let bestOverlap = 0;
-    const MIN_OVERLAP = 6; // Avoid accidental small common word matches
-    
-    for (let len = minLen; len >= MIN_OVERLAP; len--) {
-      const suffix = lastLine.substring(lastLine.length - len);
-      const prefix = newText.substring(0, len);
-      if (suffix.toLowerCase() === prefix.toLowerCase()) {
-        bestOverlap = len;
-        break;
-      }
-    }
-    
-    if (bestOverlap > 0) {
-      const merged = lastLine + newText.substring(bestOverlap);
-      const updated = [...currentTranscript];
-      updated[updated.length - 1] = merged;
-      return updated;
-    } else {
-      if (lastLine.toLowerCase().includes(newText.toLowerCase())) {
-        return currentTranscript;
-      }
-      return [...currentTranscript, newText];
-    }
-  };
+  // 3. CAPTION CAPTURE & DEDUPLICATION: Exactly from the first commit
+  const lastTexts = new Set();
 
   const handleMutation = () => {
     if (!capturing) return;
@@ -111,32 +47,42 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    // Target the region specifically marked for captions to avoid toast/notification collisions
-    const el = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]');
+    // Observe ONE container: aria-live="polite" or [jsname="tgaKEf"]
+    const el = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]');
     if (!el) return;
+
+    // Capture only when captions block is finalized (opacity=1)
+    const style = window.getComputedStyle(el);
+    if (style.opacity !== "1") return;
 
     const text = el.textContent.trim();
     if (!text) return;
 
-    // Process through the progressive overlap-merging algorithm
-    const oldLen = transcript.length;
-    transcript = cleanAndMergeTranscript(transcript, text);
-    
-    if (transcript.length !== oldLen || (transcript.length > 0 && transcript[transcript.length - 1].length > (oldLen > 0 ? transcript[oldLen - 1].length : 0))) {
-      console.log(`[MMP] Captured/Updated line ${transcript.length}: "${transcript[transcript.length - 1].substring(0, 80)}..."`);
-      
-      // Notify popup that captions are flowing
-      try {
-        chrome.runtime.sendMessage({ event: "captionsDetected" });
-      } catch (_) {}
+    // Hash-based deduplication
+    const hash = text.toLowerCase();
+    if (lastTexts.has(hash)) return;
+    lastTexts.add(hash);
+
+    // Limit set size to prevent memory leak
+    if (lastTexts.size > 200) {
+      const first = lastTexts.values().next().value;
+      lastTexts.delete(first);
     }
+
+    transcript.push(text);
+    console.log(`[MMP] Captured line ${transcript.length}: "${text.substring(0, 80)}"`);
+    
+    // Notify popup that captions are flowing
+    try {
+      chrome.runtime.sendMessage({ event: "captionsDetected" });
+    } catch (_) {}
   };
 
-  // 5. OBSERVER: Target the captions container directly, fallback to document.body
+  // 5. PERFORMANCE: Keep observers active in background
   const startObserving = () => {
     disconnectObservers();
     capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
+    const target = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
     capObserver.observe(target, { childList: true, subtree: true, characterData: true });
     console.log(`[MMP] Observer registered on ${target === document.body ? 'document.body (fallback)' : 'captions container (direct)'}.`);
   };
@@ -164,6 +110,11 @@
         transcript = recovered.transcript;
         previousSummary = recovered.previousSummary || "";
         captureStartTime = recovered.captureStartTime || 0;
+        
+        // Re-seed dedup set from recovered transcript
+        for (const line of transcript) {
+          lastTexts.add(line.toLowerCase());
+        }
         
         if (captureStartTime > 0) {
           capturing = true;
@@ -194,7 +145,6 @@
       hadMeetControls = false;
       
       disconnectObservers();
-      clearInterval(autoCapTimer);
       
       const fullText = transcript.join("\n");
       idb.del("mmp-recovery");
@@ -216,14 +166,12 @@
     if (msg.action === "start") {
       capturing = true;
       captureStartTime = Date.now();
-      startAutoCaptionsFlow();
       startObserving();
       sendResponse({ ok: true });
     } else if (msg.action === "stop") {
       capturing = false;
       captureStartTime = 0;
       disconnectObservers();
-      clearInterval(autoCapTimer);
 
       const fullText = transcript.join("\n");
       
@@ -238,12 +186,13 @@
       sendResponse({ ok: true, transcript: fullText, summary: previousSummary, chunks });
     } else if (msg.action === "clear") {
       transcript = [];
+      lastTexts.clear();
       previousSummary = "";
       captureStartTime = 0;
       idb.del("mmp-recovery");
       sendResponse({ ok: true });
     } else if (msg.action === "ping") {
-      const liveDiv = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]');
+      const liveDiv = document.querySelector('div[aria-live="polite"]');
       const isCaptionsOn = capturing || transcript.length > 0 || !!liveDiv;
       sendResponse({ ok: true, capturing, lines: transcript.length, startTime: captureStartTime, isCaptionsOn });
     }
@@ -256,7 +205,6 @@
   // Clean exit
   window.addEventListener("beforeunload", () => {
     disconnectObservers();
-    clearInterval(autoCapTimer);
   });
 
   console.log("[MMP] Content script fully loaded.");
