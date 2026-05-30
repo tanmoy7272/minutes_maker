@@ -22,25 +22,21 @@
     return tab?.url?.includes("meet.google.com") ? tab : null;
   };
 
-  const sendTabMessage = async (action) => {
-    const tab = await getMeetTab();
-    if (!tab) throw new Error("Google Meet tab not found");
-    try {
-      return await chrome.tabs.sendMessage(tab.id, { action });
-    } catch (err) {
-      console.error("[MMP] Connection error to Meet content script:", err);
-      throw new Error("Please refresh this Google Meet page to activate the extension!");
-    }
-  };
-
-  // Start Capture click
+  // Start Capture Click
   $start.onclick = async () => {
     try {
-      await sendTabMessage("start");
       const tab = await getMeetTab();
-      if (tab) {
-        chrome.storage.local.set({ capturing: true, activeTabId: tab.id });
+      if (!tab) {
+        throw new Error("Active Google Meet tab not found. Please select a Meet tab first!");
       }
+
+      console.log(`[MMP-Popup] Initiating tab capture on tab ID: ${tab.id}`);
+      const res = await chrome.runtime.sendMessage({ action: "start", tabId: tab.id });
+      
+      if (!res || !res.ok) {
+        throw new Error(res?.error || "Failed to start active audio capture.");
+      }
+
       $start.disabled = true;
       $stop.disabled = false;
       $visualizer.classList.add("active-capturing");
@@ -50,20 +46,26 @@
         const s = Math.floor(elapsed / 1000);
         $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
       }, 1000);
-      showToast("Capture active", "success");
+
+      // Force UI state to show Captions / Recording ON
+      $captionState.className = "status-pill state-on";
+      $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
+
+      showToast("Audio Capture active", "success");
     } catch (e) {
       showToast(e.message, "error");
     }
   };
 
+  // Stop Capture Click
   $stop.onclick = async () => {
     clearInterval(timerInterval);
     $overlay.classList.add("active-overlay");
     try {
-      const data = await sendTabMessage("stop");
-      chrome.storage.local.set({ capturing: false, activeTabId: null });
+      const data = await chrome.runtime.sendMessage({ action: "stop" });
+      
       if (!data || !data.transcript || data.transcript.trim().length === 0) {
-        throw new Error(`No transcript captured. Open DevTools console (F12) on the Meet tab and look for [MMP] logs to diagnose.`);
+        throw new Error("No transcription was recorded during the call.");
       }
 
       const markdown = await callSummarizeAPI(data.summary, data.transcript);
@@ -93,7 +95,7 @@
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
     try {
-      console.log("[MMP] Sending to API");
+      console.log("[MMP-Popup] Sending transcripts to summarize API...");
       const currentVersion = chrome.runtime.getManifest().version;
       const res = await fetch(`${PORTAL_URL}/api/summarize`, {
         method: "POST",
@@ -107,7 +109,6 @@
       });
       clearTimeout(t);
 
-      // Handle mandatory update rejection (HTTP 426 Upgrade Required)
       if (res.status === 426) {
         const data = await res.json();
         showUpdateOverlay(data.requiredVersion, currentVersion);
@@ -127,48 +128,54 @@
   };
 
   const resetUI = () => {
-    chrome.storage.local.set({ capturing: false, activeTabId: null });
     $overlay.classList.remove("active-overlay");
     $visualizer.classList.remove("active-capturing");
     $start.disabled = false;
     $stop.disabled = true;
     $timer.innerText = "00:00:00";
     $lineCount.innerText = "0 lines";
+    $captionState.className = "status-pill state-off";
+    $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
   };
 
   $clear.onclick = async () => {
-    if (!confirm("Clear captured meeting database?")) return;
+    if (!confirm("Clear captured meeting audio database?")) return;
     try {
-      await sendTabMessage("clear");
+      await chrome.runtime.sendMessage({ action: "clear" });
       resetUI();
-      showToast("Data cleared", "success");
+      showToast("Session cleared", "success");
     } catch (e) {
       showToast(e.message, "error");
     }
   };
 
-  // Caption Detection messages listener from content.js
+  // Whisper Segment Transcribed Message Listener
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.event === "captionsDetected") {
       $captionState.className = "status-pill state-on";
-      $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">ON</span>';
-    } else if (msg.event === "offline-sync") {
-      showToast("Offline - data saved in IndexedDB", "info");
+      $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
+      
+      // Update the lines counter actively as Whisper segment transcripts roll in
+      chrome.runtime.sendMessage({ action: "ping" }, (res) => {
+        if (res) {
+          $lineCount.innerText = `${res.lines || 0} lines`;
+        }
+      });
     }
   });
 
-  // Sync state initially
+  // Sync state initially with service worker
   (async () => {
     const tab = await getMeetTab();
     if (tab) {
-      chrome.tabs.sendMessage(tab.id, { action: "ping" }, (res) => {
-        if (chrome.runtime.lastError) return; // Safely ignore if content script is not ready
+      chrome.runtime.sendMessage({ action: "ping" }, (res) => {
+        if (chrome.runtime.lastError) return;
         if (res) {
           $lineCount.innerText = `${res.lines || 0} lines`;
           
-          if (res.isCaptionsOn || res.lines > 0 || res.capturing) {
+          if (res.capturing || res.lines > 0) {
             $captionState.className = "status-pill state-on";
-            $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">ON</span>';
+            $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
           } else {
             $captionState.className = "status-pill state-off";
             $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';

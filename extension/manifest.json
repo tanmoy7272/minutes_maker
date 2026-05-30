@@ -7,7 +7,9 @@
     "storage",
     "activeTab",
     "scripting",
-    "alarms"
+    "alarms",
+    "tabCapture",
+    "offscreen"
   ],
   "host_permissions": [
     "https://meet.google.com/*",
