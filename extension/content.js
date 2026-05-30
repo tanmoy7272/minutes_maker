@@ -11,7 +11,7 @@
   let capObserver = null;
   let autoCapTimer = null;
 
-  // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER (Mimics idb-keyval natively)
+  // 1. LIGHTWEIGHT PROMISE-BASED INDEXEDDB WRAPPER
   const DB_NAME = "MMP_RECOVERY_DB";
   const STORE_NAME = "recovery";
   
@@ -39,120 +39,9 @@
     }
   };
 
-  // Helper to find the captions toggle button using robust accessibility and shortcut labels
-  const getCaptionsButton = () => {
-    // 1. Try finding by accessibility labels on any element
-    const selector = '[aria-label*="caption" i], [aria-label*="(c)"], [data-tooltip*="(c)"], [aria-label*="cc" i], [data-tooltip*="cc" i]';
-    const el = document.querySelector(selector);
-    if (el) {
-      return el.closest('button') || el;
-    }
-    
-    // 2. Traversal fallback: search text inside all buttons
-    const buttons = Array.from(document.querySelectorAll('button'));
-    for (const btn of buttons) {
-      const text = (btn.getAttribute('aria-label') || btn.getAttribute('data-tooltip') || btn.textContent || '').toLowerCase();
-      if (text.includes('caption') || text.includes('(c)') || text.includes('subtitles') || text.includes('cc')) {
-        return btn;
-      }
-    }
-    
-    return null;
-  };
-
-  // Helper to determine the captions button toggle state (ON or OFF)
-  const getCaptionsState = (btn) => {
-    if (!btn) return false;
-    
-    // A. Check aria-pressed accessibility state
-    const pressed = btn.getAttribute('aria-pressed') || btn.querySelector('[aria-pressed]')?.getAttribute('aria-pressed');
-    if (pressed === 'true') return true;
-    if (pressed === 'false') return false;
-    
-    // B. Check text description for toggle cues
-    const label = (btn.getAttribute('aria-label') || btn.getAttribute('data-tooltip') || btn.textContent || '').toLowerCase();
-    if (label.includes('turn off') || label.includes('disable') || label.includes('desactivar') || label.includes('désactiver')) {
-      return true;
-    }
-    if (label.includes('turn on') || label.includes('enable') || label.includes('activar') || label.includes('activer')) {
-      return false;
-    }
-    
-    return false;
-  };
-
-  // ===== SELECTOR-FREE CAPTION CAPTURE ENGINE =====
-  // Instead of querying DOM with hardcoded Google class names (which break when Google changes them),
-  // we read caption text directly from MutationObserver mutation records.
-
-  // Exclusion zones — structural roles/tags that are NEVER captions
-  const EXCLUSION_SELECTORS = [
-    '[role="list"]',           // Chat messages panel
-    '[role="dialog"]',         // Settings/dialogs
-    '[role="toolbar"]',        // Control bar
-    '[role="navigation"]',     // Navigation bars
-    '[role="menu"]',           // Dropdown menus
-    '[role="menubar"]',        // Menu bars
-    '[role="tablist"]',        // Tab interfaces
-    '[role="complementary"]',  // Side panels (people, chat)
-    '[role="banner"]',         // Headers
-    'textarea',                // Chat input
-    'input',                   // Any input fields
-    'button',                  // Button text changes
-  ].join(',');
-
-  // Returns true if a node looks like caption text based on structural heuristics
-  const isCaptionNode = (node) => {
-    // Must be an element or text node
-    if (!node) return false;
-
-    // Get the actual element (for text nodes, use parent)
-    const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    if (!el || el === document.body || el === document.documentElement) return false;
-
-    // Get text content
-    const text = (node.nodeType === Node.TEXT_NODE ? node.textContent : el.innerText || el.textContent || '').trim();
-
-    // FILTER 1: Text length — captions are spoken words, typically 1-500 chars
-    if (!text || text.length === 0 || text.length > 500) return false;
-
-    // FILTER 2: Reject pure numbers, timestamps, participant counts
-    if (/^\d+$/.test(text)) return false;
-    if (/^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM)?$/i.test(text)) return false;
-
-    // FILTER 3: Reject very short UI fragments (single characters, icons)
-    if (text.length <= 1) return false;
-
-    // FILTER 4: Check that node is NOT inside an exclusion zone
-    if (el.closest(EXCLUSION_SELECTORS)) return false;
-
-    // FILTER 5: Nesting depth — captions in Google Meet are deeply nested (4+ levels from body)
-    let depth = 0;
-    let parent = el;
-    while (parent && parent !== document.body) {
-      depth++;
-      parent = parent.parentElement;
-    }
-    if (depth < 4) return false;
-
-    // FILTER 6: Check the node's position — captions appear in the bottom half of viewport
-    try {
-      const rect = el.getBoundingClientRect();
-      // If the element has a position and it's in the top 30% of the page, likely not captions
-      if (rect.height > 0 && rect.bottom < window.innerHeight * 0.3) return false;
-    } catch (_) {}
-
-    // FILTER 7: Reject if it looks like a participant name badge or UI label
-    const tag = el.tagName?.toLowerCase();
-    if (tag === 'button' || tag === 'input' || tag === 'textarea' || tag === 'select') return false;
-
-    return true;
-  };
-
-  // 2. AUTO-CAPTIONS: Click captions toggle if inactive
+  // 2. AUTO-CAPTIONS: Click captions button every 1.5s for up to 45s, verify with aria-live="polite"
   const startAutoCaptionsFlow = () => {
     let elapsed = 0;
-    let hasClicked = false;
     autoCapTimer = setInterval(() => {
       elapsed += 1500;
       if (elapsed > 45000) {
@@ -161,166 +50,68 @@
         return;
       }
 
-      const btn = getCaptionsButton();
-
-      // Check if captions are already on via button state
-      if (btn && getCaptionsState(btn)) {
-        console.log("[MMP] Captions verified ON via button state.");
-        clearInterval(autoCapTimer);
-        try { chrome.runtime.sendMessage({ event: "captionsDetected" }); } catch (_) {}
-        return;
+      const btn = document.querySelector('button[aria-label*="captions" i], button[aria-label*="(c)"], button[data-tooltip*="(c)"]');
+      if (btn && btn.getAttribute("aria-pressed") !== "true") {
+        btn.click();
+        console.log("[MMP] Clicked captions button automatically.");
       }
 
-      // Click the button if we haven't yet, or if it's still showing "off"
-      if (btn && !hasClicked) {
-        btn.click();
-        hasClicked = true;
-        console.log("[MMP] Clicked captions button. Will verify in next cycle.");
-      } else if (btn && hasClicked) {
-        // Already clicked once, check state again
-        if (getCaptionsState(btn)) {
-          console.log("[MMP] Captions confirmed ON after click.");
-          clearInterval(autoCapTimer);
-          try { chrome.runtime.sendMessage({ event: "captionsDetected" }); } catch (_) {}
-        } else {
-          // Reset - maybe it toggled off, try again
-          hasClicked = false;
-          console.log("[MMP] Captions still off, will retry click.");
-        }
-      } else {
-        console.log("[MMP] Captions button not found yet, retrying...");
+      // Verify captions are active via the ORIGINAL working selector
+      const liveDiv = document.querySelector('div[aria-live="polite"]');
+      if (liveDiv) {
+        console.log("[MMP] Captions flow verified active via aria-live='polite'.");
+        clearInterval(autoCapTimer);
+        try { chrome.runtime.sendMessage({ event: "captionsDetected" }); } catch (_) {}
       }
     }, 1500);
   };
 
-  // 3. SELECTOR-FREE CAPTION CAPTURE — reads directly from mutation records
+  // 3. CAPTION CAPTURE — ORIGINAL WORKING LOGIC from commit 6bed6c8
+  // Uses the W3C accessibility standard selector div[aria-live="polite"] which Google
+  // is required to maintain for screen reader compliance. This is the selector that
+  // WORKED PERFECTLY before it was removed in commit cadbf45.
   const lastTexts = new Set();
-  let mutationDebugCount = 0;
 
-  const handleCaptionMutation = (mutations) => {
+  const handleMutation = () => {
     if (!capturing) return;
     const now = Date.now();
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    let capturedThisCycle = false;
+    // THE ORIGINAL WORKING SELECTOR — aria-live="polite" is a W3C WCAG standard, not a Google class name
+    const el = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]');
+    if (!el) return;
 
-    for (const mutation of mutations) {
-      // STRATEGY A: characterData — an existing text node's content changed (live caption update)
-      if (mutation.type === 'characterData' && mutation.target) {
-        if (isCaptionNode(mutation.target)) {
-          const text = mutation.target.textContent.trim();
-          if (text) {
-            const hash = text.toLowerCase();
-            // For characterData, we REPLACE the last entry if it's a prefix (caption is being typed live)
-            if (!lastTexts.has(hash)) {
-              // Check if this is an update to the last captured line
-              if (transcript.length > 0) {
-                const lastLine = transcript[transcript.length - 1].toLowerCase();
-                if (hash.startsWith(lastLine.substring(0, Math.min(lastLine.length, 20)))) {
-                  // This is the same caption being extended — update it
-                  transcript[transcript.length - 1] = text;
-                  capturedThisCycle = true;
-                  continue;
-                }
-              }
-              lastTexts.add(hash);
-              if (lastTexts.size > 500) {
-                const first = lastTexts.values().next().value;
-                lastTexts.delete(first);
-              }
-              transcript.push(text);
-              console.log(`[MMP] ✓ Captured (charData) line ${transcript.length}: "${text.substring(0, 80)}"`);
-              capturedThisCycle = true;
-            }
-          }
-        }
-      }
+    const text = el.textContent.trim();
+    if (!text) return;
 
-      // STRATEGY B: childList — new elements were added (new caption block appeared)
-      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            // Direct text node added
-            if (isCaptionNode(node)) {
-              const text = node.textContent.trim();
-              if (text) {
-                const hash = text.toLowerCase();
-                if (!lastTexts.has(hash)) {
-                  lastTexts.add(hash);
-                  if (lastTexts.size > 500) {
-                    const first = lastTexts.values().next().value;
-                    lastTexts.delete(first);
-                  }
-                  transcript.push(text);
-                  console.log(`[MMP] ✓ Captured (textNode) line ${transcript.length}: "${text.substring(0, 80)}"`);
-                  capturedThisCycle = true;
-                }
-              }
-            }
-          } else if (node.nodeType === Node.ELEMENT_NODE) {
-            // Element added — extract its text content if it passes heuristics
-            // First check the element itself
-            if (isCaptionNode(node)) {
-              const text = (node.innerText || node.textContent || '').trim();
-              if (text) {
-                const hash = text.toLowerCase();
-                if (!lastTexts.has(hash)) {
-                  lastTexts.add(hash);
-                  if (lastTexts.size > 500) {
-                    const first = lastTexts.values().next().value;
-                    lastTexts.delete(first);
-                  }
-                  transcript.push(text);
-                  console.log(`[MMP] ✓ Captured (element) line ${transcript.length}: "${text.substring(0, 80)}"`);
-                  capturedThisCycle = true;
-                }
-              }
-            }
+    // Hash-based deduplication
+    const hash = text.toLowerCase();
+    if (lastTexts.has(hash)) return;
+    lastTexts.add(hash);
 
-            // Also check leaf-level text descendants (captions are often deeply wrapped spans)
-            const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
-            let textNode;
-            while ((textNode = walker.nextNode())) {
-              const text = textNode.textContent.trim();
-              if (text && text.length > 1 && text.length <= 500 && isCaptionNode(textNode)) {
-                const hash = text.toLowerCase();
-                if (!lastTexts.has(hash)) {
-                  lastTexts.add(hash);
-                  if (lastTexts.size > 500) {
-                    const first = lastTexts.values().next().value;
-                    lastTexts.delete(first);
-                  }
-                  transcript.push(text);
-                  console.log(`[MMP] ✓ Captured (leaf) line ${transcript.length}: "${text.substring(0, 80)}"`);
-                  capturedThisCycle = true;
-                }
-              }
-            }
-          }
-        }
-      }
+    // Limit set size to prevent memory leak
+    if (lastTexts.size > 200) {
+      const first = lastTexts.values().next().value;
+      lastTexts.delete(first);
     }
 
-    // Periodic debug logging (every ~30 seconds) to confirm observer is alive
-    mutationDebugCount++;
-    if (mutationDebugCount % 90 === 0) { // ~90 * 333ms ≈ 30s
-      console.log(`[MMP] Observer alive. Total mutations processed: ${mutationDebugCount}. Transcript lines: ${transcript.length}`);
-    }
-
-    if (capturedThisCycle) {
-      try { chrome.runtime.sendMessage({ event: "captionsDetected" }); } catch (_) {}
-    }
+    transcript.push(text);
+    console.log(`[MMP] Captured line ${transcript.length}: "${text.substring(0, 80)}"`);
+    
+    // Notify popup that captions are flowing
+    try {
+      chrome.runtime.sendMessage({ event: "captionsDetected" });
+    } catch (_) {}
   };
 
-  // 5. PERFORMANCE: Throttled Global document.body Observer
+  // 5. OBSERVER: Target the captions container directly, fallback to document.body
   const startObserving = () => {
     disconnectObservers();
-    
-    capObserver = new MutationObserver(handleCaptionMutation);
-    capObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-    console.log("[MMP] MutationObserver active on document.body — selector-free capture engine ready.");
-    mutationDebugCount = 0;
+    capObserver = new MutationObserver(handleMutation);
+    const target = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
+    capObserver.observe(target, { childList: true, subtree: true, characterData: true });
+    console.log(`[MMP] Observer registered on ${target === document.body ? 'document.body (fallback)' : 'captions container (direct)'}.`);
   };
 
   const disconnectObservers = () => {
@@ -328,10 +119,9 @@
       capObserver.disconnect();
       capObserver = null;
     }
-    console.log("[MMP] Disconnected all scraper observers.");
   };
 
-  // 6. AUTO-SAVE & STATE RECOVERY: every 15s to 'mmp-recovery' IndexedDB key
+  // 6. AUTO-SAVE & STATE RECOVERY: every 15s to IndexedDB
   setInterval(() => {
     if (capturing && transcript.length > 0) {
       idb.set("mmp-recovery", { transcript, previousSummary, captureStartTime });
@@ -366,7 +156,7 @@
     }
   };
 
-  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Path-only Aware)
+  // 6.5. AUTOMATED HANGUP/LEAVE SUPERVISOR (Path-only, no DOM button dependency)
   let hadMeetControls = false;
   
   const checkMeetingEndStatus = () => {
@@ -377,7 +167,6 @@
     if (isMeetSession) {
       hadMeetControls = true;
     } else if (!isMeetSession && hadMeetControls) {
-      // Session ended solely by leaving the session path (ignores control bar auto-hiding)
       console.log("[MMP] Auto-Supervisor detected hangup/leave. Ending capture...");
       capturing = false;
       hadMeetControls = false;
@@ -386,7 +175,7 @@
       clearInterval(autoCapTimer);
       
       const fullText = transcript.join("\n");
-      idb.del("mmp-recovery"); // Clear recovery buffer
+      idb.del("mmp-recovery");
       
       if (transcript.length > 0) {
         chrome.runtime.sendMessage({ 
@@ -398,13 +187,13 @@
     }
   };
   
-  setInterval(checkMeetingEndStatus, 2500); // Check every 2.5 seconds
+  setInterval(checkMeetingEndStatus, 2500);
 
   // 7. Message Router for popup.js triggers
   chrome.runtime.onMessage.addListener((msg, _, sendResponse) => {
     if (msg.action === "start") {
       capturing = true;
-      captureStartTime = Date.now(); // Set persistent capture start time!
+      captureStartTime = Date.now();
       startAutoCaptionsFlow();
       startObserving();
       sendResponse({ ok: true });
@@ -416,7 +205,7 @@
 
       const fullText = transcript.join("\n");
       
-      // Perform string chunking synchronously on the main thread (100% immune to Vercel/Meet CSP blocks)
+      // Synchronous chunking (avoids CSP Worker block that killed the original Web Worker approach)
       const chunks = [];
       for (let i = 0; i < fullText.length; i += 11200) {
         chunks.push(fullText.substring(i, i + 11200));
@@ -433,9 +222,8 @@
       idb.del("mmp-recovery");
       sendResponse({ ok: true });
     } else if (msg.action === "ping") {
-      // Determine captions state from button accessibility attributes only
-      const btn = getCaptionsButton();
-      const isCaptionsOn = capturing || transcript.length > 0 || (btn && getCaptionsState(btn));
+      const liveDiv = document.querySelector('div[aria-live="polite"]');
+      const isCaptionsOn = capturing || transcript.length > 0 || !!liveDiv;
       sendResponse({ ok: true, capturing, lines: transcript.length, startTime: captureStartTime, isCaptionsOn });
     }
     return true; // Keep channel open async
