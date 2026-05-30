@@ -66,11 +66,44 @@
     }, 1500);
   };
 
-  // 3. CAPTION CAPTURE — ORIGINAL WORKING LOGIC from commit 6bed6c8
-  // Uses the W3C accessibility standard selector div[aria-live="polite"] which Google
-  // is required to maintain for screen reader compliance. This is the selector that
-  // WORKED PERFECTLY before it was removed in commit cadbf45.
-  const lastTexts = new Set();
+  // Suffix-prefix overlap merging algorithm to eliminate progressive duplicates
+  const cleanAndMergeTranscript = (currentTranscript, newText) => {
+    if (currentTranscript.length === 0) {
+      return [newText];
+    }
+    
+    const lastLine = currentTranscript[currentTranscript.length - 1];
+    
+    // Quick exit if exact match
+    if (lastLine === newText) {
+      return currentTranscript;
+    }
+    
+    const minLen = Math.min(lastLine.length, newText.length);
+    let bestOverlap = 0;
+    const MIN_OVERLAP = 6; // Avoid accidental small common word matches
+    
+    for (let len = minLen; len >= MIN_OVERLAP; len--) {
+      const suffix = lastLine.substring(lastLine.length - len);
+      const prefix = newText.substring(0, len);
+      if (suffix.toLowerCase() === prefix.toLowerCase()) {
+        bestOverlap = len;
+        break;
+      }
+    }
+    
+    if (bestOverlap > 0) {
+      const merged = lastLine + newText.substring(bestOverlap);
+      const updated = [...currentTranscript];
+      updated[updated.length - 1] = merged;
+      return updated;
+    } else {
+      if (lastLine.toLowerCase().includes(newText.toLowerCase())) {
+        return currentTranscript;
+      }
+      return [...currentTranscript, newText];
+    }
+  };
 
   const handleMutation = () => {
     if (!capturing) return;
@@ -85,24 +118,18 @@
     const text = el.textContent.trim();
     if (!text) return;
 
-    // Hash-based deduplication
-    const hash = text.toLowerCase();
-    if (lastTexts.has(hash)) return;
-    lastTexts.add(hash);
-
-    // Limit set size to prevent memory leak
-    if (lastTexts.size > 200) {
-      const first = lastTexts.values().next().value;
-      lastTexts.delete(first);
-    }
-
-    transcript.push(text);
-    console.log(`[MMP] Captured line ${transcript.length}: "${text.substring(0, 80)}"`);
+    // Process through the progressive overlap-merging algorithm
+    const oldLen = transcript.length;
+    transcript = cleanAndMergeTranscript(transcript, text);
     
-    // Notify popup that captions are flowing
-    try {
-      chrome.runtime.sendMessage({ event: "captionsDetected" });
-    } catch (_) {}
+    if (transcript.length !== oldLen || (transcript.length > 0 && transcript[transcript.length - 1].length > (oldLen > 0 ? transcript[oldLen - 1].length : 0))) {
+      console.log(`[MMP] Captured/Updated line ${transcript.length}: "${transcript[transcript.length - 1].substring(0, 80)}..."`);
+      
+      // Notify popup that captions are flowing
+      try {
+        chrome.runtime.sendMessage({ event: "captionsDetected" });
+      } catch (_) {}
+    }
   };
 
   // 5. OBSERVER: Target the captions container directly, fallback to document.body
@@ -137,11 +164,6 @@
         transcript = recovered.transcript;
         previousSummary = recovered.previousSummary || "";
         captureStartTime = recovered.captureStartTime || 0;
-        
-        // Re-seed dedup set from recovered transcript
-        for (const line of transcript) {
-          lastTexts.add(line.toLowerCase());
-        }
         
         if (captureStartTime > 0) {
           capturing = true;
@@ -216,7 +238,6 @@
       sendResponse({ ok: true, transcript: fullText, summary: previousSummary, chunks });
     } else if (msg.action === "clear") {
       transcript = [];
-      lastTexts.clear();
       previousSummary = "";
       captureStartTime = 0;
       idb.del("mmp-recovery");

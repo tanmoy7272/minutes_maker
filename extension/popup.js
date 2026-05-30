@@ -37,6 +37,10 @@
   $start.onclick = async () => {
     try {
       await sendTabMessage("start");
+      const tab = await getMeetTab();
+      if (tab) {
+        chrome.storage.local.set({ capturing: true, activeTabId: tab.id });
+      }
       $start.disabled = true;
       $stop.disabled = false;
       $visualizer.classList.add("active-capturing");
@@ -57,6 +61,7 @@
     $overlay.classList.add("active-overlay");
     try {
       const data = await sendTabMessage("stop");
+      chrome.storage.local.set({ capturing: false, activeTabId: null });
       if (!data || !data.transcript || data.transcript.trim().length === 0) {
         throw new Error(`No transcript captured. Open DevTools console (F12) on the Meet tab and look for [MMP] logs to diagnose.`);
       }
@@ -122,6 +127,7 @@
   };
 
   const resetUI = () => {
+    chrome.storage.local.set({ capturing: false, activeTabId: null });
     $overlay.classList.remove("active-overlay");
     $visualizer.classList.remove("active-capturing");
     $start.disabled = false;
