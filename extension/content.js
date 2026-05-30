@@ -111,8 +111,8 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    // THE ORIGINAL WORKING SELECTOR — aria-live="polite" is a W3C WCAG standard, not a Google class name
-    const el = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]');
+    // Target the region specifically marked for captions to avoid toast/notification collisions
+    const el = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]');
     if (!el) return;
 
     const text = el.textContent.trim();
@@ -136,7 +136,7 @@
   const startObserving = () => {
     disconnectObservers();
     capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
+    const target = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
     capObserver.observe(target, { childList: true, subtree: true, characterData: true });
     console.log(`[MMP] Observer registered on ${target === document.body ? 'document.body (fallback)' : 'captions container (direct)'}.`);
   };
@@ -243,7 +243,7 @@
       idb.del("mmp-recovery");
       sendResponse({ ok: true });
     } else if (msg.action === "ping") {
-      const liveDiv = document.querySelector('div[aria-live="polite"]');
+      const liveDiv = document.querySelector('[role="region"][aria-label*="caption" i], div[aria-live="polite"], [jsname="tgaKEf"]');
       const isCaptionsOn = capturing || transcript.length > 0 || !!liveDiv;
       sendResponse({ ok: true, capturing, lines: transcript.length, startTime: captureStartTime, isCaptionsOn });
     }
