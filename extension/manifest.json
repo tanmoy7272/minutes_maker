@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meet Minutes Pro",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Instant AI meeting minutes for Google Meet",
   "permissions": [
     "storage",

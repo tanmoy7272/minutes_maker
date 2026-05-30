@@ -21,7 +21,7 @@
       
       try {
         // 1. Capture the exact tab audio stream using standard mediaDevices token
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const tabStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             mandatory: {
               chromeMediaSource: "tab",
@@ -31,15 +31,35 @@
           video: false
         });
 
-        // 2. WEB AUDIO LOOPBACK: Capture silences local tab speakers natively. 
-        // We create an AudioContext destination link to pipe sound back to user's hardware.
+        // 2. WEB AUDIO MIX & LOOPBACK: Capture silences local tab speakers natively.
+        // We link the tab audio to speakers (destination) so the user continues hearing other participants,
+        // and mix both the tab audio and the host's microphone together for MediaRecorder.
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        source.connect(audioCtx.destination);
+        const tabSource = audioCtx.createMediaStreamSource(tabStream);
+        
+        // Loop back tab audio to speakers
+        tabSource.connect(audioCtx.destination);
         console.log("[MMP-Offscreen] Web Audio Loopback speaker pipe successful.");
 
+        // Create a mixed destination stream to record both inputs
+        const mixedDestination = audioCtx.createMediaStreamDestination();
+        tabSource.connect(mixedDestination);
+
+        let finalStream = mixedDestination.stream;
+
+        // Try to capture user's own microphone and mix it in
+        try {
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const micSource = audioCtx.createMediaStreamSource(micStream);
+          micSource.connect(mixedDestination);
+          console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
+        } catch (micErr) {
+          console.warn("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
+          // Fallback: finalStream already contains tab audio via mixedDestination, which is perfect.
+        }
+
         // 3. Initiate active recording context
-        startRecordingStream(stream);
+        startRecordingStream(finalStream);
       } catch (err) {
         console.error("[MMP-Offscreen] getUserMedia tab capture failed:", err);
         chrome.runtime.sendMessage({ action: "captureError", error: err.message });
@@ -69,22 +89,29 @@
     };
 
     mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      const audioBlob = new Blob(recordedChunks, { type: (mediaRecorder && mediaRecorder.mimeType) || "audio/webm" });
       recordedChunks = [];
 
+      let sentForTranscription = false;
+
       // Safe size filter: ignore micro-silent recordings (less than 1KB)
-      if (audioBlob.size > 1000 && recordingActive) {
+      if (audioBlob.size > 1000) {
         console.log(`[MMP-Offscreen] Slicing segmented blob (${audioBlob.size} bytes). Sending to Whisper...`);
         sendBlobForTranscription(audioBlob);
+        sentForTranscription = true;
       }
 
       // Automatically recycle and restart MediaRecorder for continuous progressive segments
-      if (recordingActive) {
+      if (recordingActive && mediaRecorder) {
         try {
           mediaRecorder.start();
         } catch (e) {
           console.error("[MMP-Offscreen] Failed to auto-restart recorder:", e);
         }
+      } else if (!recordingActive && !sentForTranscription) {
+        // If we are stopping and did not send a chunk, notify background immediately
+        console.log("[MMP-Offscreen] Stop requested and final chunk empty. Triggering cleanup completion.");
+        chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
       }
     };
 
@@ -113,17 +140,19 @@
         mediaRecorder.stop();
       }
       mediaRecorder = null;
+    } else {
+      // If there is no active mediaRecorder, notify background of completion immediately
+      console.log("[MMP-Offscreen] No active media recorder. Triggering cleanup completion.");
+      chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
     }
-
-    // Terminate offscreen context safely after cleanup
-    setTimeout(() => {
-      window.close();
-    }, 500);
   };
 
-  const sendBlobForTranscription = async (blob) => {
+  const sendBlobForTranscription = async (blob, attempt = 1) => {
     const formData = new FormData();
     formData.append("file", blob, "audio.webm");
+
+    const maxAttempts = 3;
+    const baseDelay = 1500; // start with 1.5s delay
 
     try {
       const endpoint = `${portalUrl.endsWith("/") ? portalUrl.slice(0, -1) : portalUrl}/api/transcribe`;
@@ -146,8 +175,28 @@
           text
         });
       }
+
+      // If this is the final transcription segment and recording has stopped, let background know
+      if (!recordingActive) {
+        console.log("[MMP-Offscreen] Final transcription segment completed. Triggering cleanup completion.");
+        chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+      }
     } catch (err) {
-      console.error("[MMP-Offscreen] Transcription transmission failed:", err);
+      console.error(`[MMP-Offscreen] Transcription attempt ${attempt} failed:`, err);
+      
+      if (attempt < maxAttempts) {
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`[MMP-Offscreen] Retrying in ${delay}ms...`);
+        setTimeout(() => {
+          sendBlobForTranscription(blob, attempt + 1);
+        }, delay);
+      } else {
+        console.error("[MMP-Offscreen] All transcription retry attempts failed.");
+        // Notify background that cleanup is complete anyway to avoid hangs
+        if (!recordingActive) {
+          chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+        }
+      }
     }
   };
 })();

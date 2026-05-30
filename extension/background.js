@@ -3,17 +3,11 @@
  *
  * Responsibilities:
  * 1. Coordinates offscreen tab audio capture document lifecycle.
- * 2. Maintains transcription state and recovery backups in chrome.storage.local.
+ * 2. Maintains transcription state and recovery backups in chrome.storage.local (Stateless / Sleep-safe).
  * 3. Handles sequential Groq/Gemini API calls on Stop or Auto-Hangup.
  */
 
 const PORTAL_URL = "https://minutes-maker-five.vercel.app/";
-
-// State variables maintained in storage and service worker memory
-let capturing = false;
-let transcript = [];
-let captureStartTime = 0;
-let activeTabId = null;
 
 // ── Install / Update ─────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener((details) => {
@@ -26,7 +20,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     activeTabId: null
   });
 
-  // alarm to check on active capture state
+  // Alarm to check on active capture state
   chrome.alarms.create("healthCheck", { periodInMinutes: 1 });
 
   if (details.reason === "install") {
@@ -35,17 +29,6 @@ chrome.runtime.onInstalled.addListener((details) => {
 
   console.log(`[Meet Minutes Pro] Whisper Audio Capture installed v1.2.0`);
 });
-
-// Sync local service worker memory state from storage on load
-const syncMemoryFromStorage = () => {
-  chrome.storage.local.get(["capturing", "transcript", "captureStartTime", "activeTabId"], (data) => {
-    capturing = !!data.capturing;
-    transcript = data.transcript || [];
-    captureStartTime = data.captureStartTime || 0;
-    activeTabId = data.activeTabId || null;
-  });
-};
-syncMemoryFromStorage();
 
 // ── Offscreen Audio Capturing Lifecycle Manager ──────────────────────────────
 const startAudioCapture = async (tabId) => {
@@ -116,18 +99,15 @@ const stopAudioCapture = async () => {
 
 // ── Tab Closed → Cleanup ─────────────────────────────────────────────────────
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (activeTabId && activeTabId === tabId) {
-    console.log("[Meet Minutes Pro] Active Meet tab closed — tearing down capture.");
-    cleanupActiveSession();
-  }
+  chrome.storage.local.get(["activeTabId"], (data) => {
+    if (data.activeTabId && data.activeTabId === tabId) {
+      console.log("[Meet Minutes Pro] Active Meet tab closed — tearing down capture.");
+      cleanupActiveSession();
+    }
+  });
 });
 
 const cleanupActiveSession = () => {
-  capturing = false;
-  captureStartTime = 0;
-  activeTabId = null;
-  transcript = [];
-  
   chrome.storage.local.set({
     capturing: false,
     activeTabId: null,
@@ -191,7 +171,92 @@ const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) =>
   }
 };
 
-// ── Message Router ───────────────────────────────────────────────────────────
+// ── Coordinated Stop & Queue State Variables ─────────────────────────────────
+let pendingStopResponse = null;
+let isAutoStopping = false;
+let transcriptQueue = Promise.resolve();
+
+// ── Serialization Queue Helper to prevent concurrent storage overwrite races ──
+const appendToTranscript = (cleanText) => {
+  transcriptQueue = transcriptQueue.then(() => {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(["transcript"], (data) => {
+        const currentTranscript = data.transcript || [];
+        currentTranscript.push(cleanText);
+        chrome.storage.local.set({ transcript: currentTranscript }, () => {
+          // Notify active popup that new transcript text has flowed in
+          try {
+            chrome.runtime.sendMessage({ event: "captionsDetected" });
+          } catch (_) {}
+          resolve();
+        });
+      });
+    });
+  });
+};
+
+// ── Coordinated Shutdown & Finalization Handlers ─────────────────────────────
+const finalizeStopAndResponse = () => {
+  chrome.storage.local.get(["transcript"], (data) => {
+    const fullText = (data.transcript || []).join("\n");
+    const isAuto = isAutoStopping;
+
+    cleanupActiveSession();
+    isAutoStopping = false;
+
+    if (isAuto) {
+      if (fullText.trim().length > 0) {
+        console.log("[Meet Minutes Pro] Auto-summarizing final transcript of length:", fullText.length);
+        callSummarizeAPI("", fullText)
+          .then((markdown) => {
+            const bytes = new TextEncoder().encode(markdown);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const encoded = btoa(binary);
+            chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
+          })
+          .catch((err) => {
+            console.error("[Meet Minutes Pro] Auto-summarization failed:", err);
+          });
+      }
+    } else if (pendingStopResponse) {
+      const chunks = [];
+      for (let i = 0; i < fullText.length; i += 11200) {
+        chunks.push(fullText.substring(i, i + 11200));
+      }
+      pendingStopResponse({ ok: true, transcript: fullText, summary: "", chunks });
+      pendingStopResponse = null;
+    }
+  });
+};
+
+const triggerStopFlow = async () => {
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"]
+    });
+
+    if (contexts.length > 0) {
+      console.log("[Meet Minutes Pro] Active offscreen context found. Requesting stop Capture...");
+      chrome.runtime.sendMessage({ action: "stopCapture" }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn("[Meet Minutes Pro] Error messaging offscreen:", chrome.runtime.lastError);
+          finalizeStopAndResponse();
+        }
+      });
+    } else {
+      console.log("[Meet Minutes Pro] No active offscreen document found during stop flow. Finalizing immediately.");
+      finalizeStopAndResponse();
+    }
+  } catch (err) {
+    console.error("[Meet Minutes Pro] Error in triggerStopFlow:", err);
+    finalizeStopAndResponse();
+  }
+};
+
+// ── Message Router (Stateless / Storage-driven to prevent Service Worker sleep races) ──
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "start") {
     const tabId = sender.tab?.id || msg.tabId;
@@ -200,86 +265,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    capturing = true;
-    captureStartTime = Date.now();
-    activeTabId = tabId;
-    transcript = [];
+    const startTime = Date.now();
 
     chrome.storage.local.set({
       capturing: true,
-      captureStartTime,
-      activeTabId,
+      captureStartTime: startTime,
+      activeTabId: tabId,
       transcript: []
+    }, () => {
+      startAudioCapture(tabId)
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) => {
+          cleanupActiveSession();
+          sendResponse({ ok: false, error: err.message });
+        });
     });
-
-    startAudioCapture(tabId)
-      .then(() => sendResponse({ ok: true }))
-      .catch((err) => {
-        cleanupActiveSession();
-        sendResponse({ ok: false, error: err.message });
-      });
 
     return true; // Keep channel open async
   } else if (msg.action === "stop") {
-    // Notify offscreen to close down
-    stopAudioCapture();
-
-    const fullText = transcript.join("\n");
-    const startTime = captureStartTime;
-
-    cleanupActiveSession();
-
-    // Split text into chunks for safe transmission
-    const chunks = [];
-    for (let i = 0; i < fullText.length; i += 11200) {
-      chunks.push(fullText.substring(i, i + 11200));
-    }
-
-    sendResponse({ ok: true, transcript: fullText, summary: "", chunks });
+    pendingStopResponse = sendResponse;
+    isAutoStopping = false;
+    triggerStopFlow();
     return true; // Keep channel open async
   } else if (msg.action === "clear") {
     cleanupActiveSession();
     sendResponse({ ok: true });
   } else if (msg.action === "ping") {
-    sendResponse({ 
-      ok: true, 
-      capturing, 
-      lines: transcript.length, 
-      startTime: captureStartTime,
-      isCaptionsOn: capturing || transcript.length > 0
+    chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
+      const isCap = !!data.capturing;
+      const lines = data.transcript ? data.transcript.length : 0;
+      sendResponse({ 
+        ok: true, 
+        capturing: isCap, 
+        lines, 
+        startTime: data.captureStartTime || 0,
+        isCaptionsOn: isCap || lines > 0
+      });
     });
+    return true; // Keep channel open async
   } else if (msg.action === "audioSegmentTranscribed") {
-    // Append the newly transcribed text segment from offscreen.js
     const cleanText = msg.text?.trim();
     if (cleanText) {
-      transcript.push(cleanText);
-      chrome.storage.local.set({ transcript });
-      
-      // Notify active popup that new transcript text has flowed in
-      try {
-        chrome.runtime.sendMessage({ event: "captionsDetected" });
-      } catch (_) {}
+      appendToTranscript(cleanText);
     }
   } else if (msg.action === "autoStopAndSummarize") {
-    console.log("[Meet Minutes Pro] Supervisor detected hangup. Auto-summarizing...");
-    
-    const fullText = transcript.join("\n");
-    cleanupActiveSession();
-
-    if (fullText.trim().length > 0) {
-      callSummarizeAPI("", fullText)
-        .then((markdown) => {
-          const bytes = new TextEncoder().encode(markdown);
-          let binary = "";
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const encoded = btoa(binary);
-          chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
-        })
-        .catch((err) => {
-          console.error("[Meet Minutes Pro] Auto-summarization failed:", err);
-        });
-    }
+    chrome.storage.local.get(["capturing"], (data) => {
+      if (!data.capturing) return; // Already manually stopped or not capturing
+      
+      console.log("[Meet Minutes Pro] Supervisor detected hangup. Initiating auto-stop...");
+      isAutoStopping = true;
+      pendingStopResponse = null;
+      triggerStopFlow();
+    });
+  } else if (msg.action === "offscreenCleanupComplete") {
+    console.log("[Meet Minutes Pro] Offscreen cleanup completed. Closing document...");
+    chrome.offscreen.closeDocument()
+      .then(() => {
+        console.log("[Meet Minutes Pro] Offscreen capture document closed successfully.");
+      })
+      .catch(err => console.warn("[Meet Minutes Pro] Error closing offscreen document:", err))
+      .finally(() => {
+        finalizeStopAndResponse();
+      });
   }
 });

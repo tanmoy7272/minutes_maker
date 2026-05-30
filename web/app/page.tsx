@@ -56,7 +56,7 @@ export default function LandingPage() {
     },
     {
       q: "Do I need to enable Google Meet captions?",
-      a: "No, you don't need to do anything! When you click 'Start Capture' inside the extension panel, our smart engine automatically turns on Google Meet captions and configures the recording stream under the hood."
+      a: "No, you don't need to do anything! Our advanced engine captures high-fidelity digital audio directly from the meeting tab and mixes it with your microphone. You can record and transcribe the entire call without ever turning on Google Meet captions."
     }
   ];
 
@@ -78,7 +78,7 @@ export default function LandingPage() {
                 Meet Minutes Pro
               </span>
               <span className="ml-2 rounded-full border border-purple-500/30 bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
-                v1.1
+                v1.2
               </span>
             </div>
           </div>
