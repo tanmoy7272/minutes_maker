@@ -38,7 +38,7 @@
     }
   };
 
-  // 3. CAPTION CAPTURE & DEDUPLICATION: Exactly from the first commit
+  // 3. CAPTION CAPTURE & DEDUPLICATION: Enhanced first commit manual engine
   const lastTexts = new Set();
 
   const handleMutation = () => {
@@ -47,13 +47,9 @@
     if (now - lastCheckTime < 333) return; // Throttle to 3 checks/sec
     lastCheckTime = now;
 
-    // Observe ONE container: aria-live="polite" or [jsname="tgaKEf"]
-    const el = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]');
+    // Observe targeted landmarks to avoid notification hijacking, fall back to standard selectors
+    const el = document.querySelector('[role="region"][aria-label*="caption" i], [role="region"][aria-label*="subt" i], div[aria-live="polite"], [jsname="tgaKEf"]');
     if (!el) return;
-
-    // Capture only when captions block is finalized (opacity=1)
-    const style = window.getComputedStyle(el);
-    if (style.opacity !== "1") return;
 
     const text = el.textContent.trim();
     if (!text) return;
@@ -78,13 +74,13 @@
     } catch (_) {}
   };
 
-  // 5. PERFORMANCE: Keep observers active in background
+  // 5. PERFORMANCE: Keep observers active on document.body to survive container unmounts
   const startObserving = () => {
     disconnectObservers();
     capObserver = new MutationObserver(handleMutation);
-    const target = document.querySelector('div[aria-live="polite"], [jsname="tgaKEf"]') || document.body;
-    capObserver.observe(target, { childList: true, subtree: true, characterData: true });
-    console.log(`[MMP] Observer registered on ${target === document.body ? 'document.body (fallback)' : 'captions container (direct)'}.`);
+    // Always observe body globally to remain immune to captions container unmounting
+    capObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    console.log("[MMP] MutationObserver active globally on document.body.");
   };
 
   const disconnectObservers = () => {
@@ -192,7 +188,7 @@
       idb.del("mmp-recovery");
       sendResponse({ ok: true });
     } else if (msg.action === "ping") {
-      const liveDiv = document.querySelector('div[aria-live="polite"]');
+      const liveDiv = document.querySelector('[role="region"][aria-label*="caption" i], [role="region"][aria-label*="subt" i], div[aria-live="polite"], [jsname="tgaKEf"]');
       const isCaptionsOn = capturing || transcript.length > 0 || !!liveDiv;
       sendResponse({ ok: true, capturing, lines: transcript.length, startTime: captureStartTime, isCaptionsOn });
     }
