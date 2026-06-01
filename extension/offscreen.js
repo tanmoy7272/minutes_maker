@@ -7,21 +7,12 @@
   let recordingActive = false;
   let portalUrl = "https://minutes-maker-five.vercel.app";
 
-  // On startup, retrieve stored capture parameters and immediately begin stream consumption
-  chrome.storage.local.get(["tempStreamId", "portalUrl"], async (data) => {
-    if (data.portalUrl) {
-      portalUrl = data.portalUrl;
-    }
-    
-    const streamId = data.tempStreamId;
-    if (!streamId) {
-      console.warn("[MMP-Offscreen] No active stream ID found in storage on mount.");
-      return;
-    }
+  let captureInitiated = false;
 
-    // Clean up temporary streamId immediately to protect lifecycle tokens
-    chrome.storage.local.remove(["tempStreamId"]);
-    
+  const initCaptureFlow = async (streamId) => {
+    if (captureInitiated) return;
+    captureInitiated = true;
+
     console.log(`[MMP-Offscreen] Initiating capture for stream ID: ${streamId}`);
     
     try {
@@ -36,10 +27,19 @@
         video: false
       });
 
+      // Track ended handler to auto-cleanup when tab closes / redirects
+      tabStream.getAudioTracks().forEach(track => {
+        track.onended = () => {
+          console.log("[MMP-Offscreen] Tab stream audio track ended. Stopping capture...");
+          stopRecordingStream();
+        };
+      });
+
       // 2. WEB AUDIO MIX & LOOPBACK: Capture silences local tab speakers natively.
-      // We link the tab audio to speakers (destination) so the user continues hearing other participants,
-      // and mix both the tab audio and the host's microphone together for MediaRecorder.
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
       const tabSource = audioCtx.createMediaStreamSource(tabStream);
       
       // Loop back tab audio to speakers
@@ -60,7 +60,6 @@
         console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
       } catch (micErr) {
         console.warn("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
-        // Fallback: finalStream already contains tab audio via mixedDestination, which is perfect.
       }
 
       // 3. Initiate active recording context
@@ -69,10 +68,28 @@
       console.error("[MMP-Offscreen] getUserMedia tab capture failed:", err);
       chrome.runtime.sendMessage({ action: "captureError", error: err.message });
     }
+  };
+
+  // On startup, retrieve stored capture parameters (fallback)
+  chrome.storage.local.get(["tempStreamId", "portalUrl"], async (data) => {
+    if (data.portalUrl) {
+      portalUrl = data.portalUrl;
+    }
+    
+    const streamId = data.tempStreamId;
+    if (streamId) {
+      chrome.storage.local.remove(["tempStreamId"]);
+      console.log("[MMP-Offscreen] Found stream ID in storage on load.");
+      initCaptureFlow(streamId);
+    }
   });
 
+  // Message listener for direct message-driven transfer (primary)
   chrome.runtime.onMessage.addListener(async (msg) => {
-    if (msg.action === "stopCapture") {
+    if (msg.action === "initiateCapture") {
+      console.log("[MMP-Offscreen] Received initiateCapture message.");
+      initCaptureFlow(msg.streamId);
+    } else if (msg.action === "stopCapture") {
       console.log("[MMP-Offscreen] Received stopCapture instruction.");
       stopRecordingStream();
     }

@@ -30,9 +30,22 @@
         throw new Error("Active Google Meet tab not found. Please select a Meet tab first!");
       }
 
-      console.log(`[MMP-Popup] Querying tab capture stream ID for tab ID: ${tab.id}`);
-      
-      // Query streamId directly inside the user-gesture click handler context
+      console.log("[MMP-Popup] 1. Launching offscreen document context...");
+      const launchRes = await chrome.runtime.sendMessage({ action: "launchOffscreen" });
+      if (!launchRes || !launchRes.ok) {
+        throw new Error(launchRes?.error || "Failed to launch offscreen context.");
+      }
+
+      // Request microphone permission inside a user gesture context first to avoid offscreen prompt hangs (Issue 3)
+      try {
+        console.log("[MMP-Popup] 2. Pre-checking microphone permissions...");
+        const tempMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tempMicStream.getTracks().forEach(track => track.stop());
+      } catch (micPromptErr) {
+        console.warn("[MMP-Popup] Microphone permission check skipped or denied:", micPromptErr);
+      }
+
+      console.log(`[MMP-Popup] 3. Querying tab capture stream ID for tab ID: ${tab.id}`);
       const streamId = await new Promise((resolve, reject) => {
         chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
           if (chrome.runtime.lastError) {
@@ -43,15 +56,20 @@
         });
       });
 
-      console.log(`[MMP-Popup] Stream ID generated: ${streamId}. Starting audio capture pipeline...`);
-      const res = await chrome.runtime.sendMessage({ 
-        action: "start", 
-        tabId: tab.id,
+      console.log(`[MMP-Popup] 4. Instantly messaging stream ID: ${streamId} to offscreen context...`);
+      chrome.runtime.sendMessage({ 
+        action: "initiateCapture", 
         streamId: streamId 
+      });
+
+      console.log("[MMP-Popup] 5. Syncing active capturing metadata to service worker...");
+      const res = await chrome.runtime.sendMessage({ 
+        action: "startCaptureState", 
+        tabId: tab.id 
       });
       
       if (!res || !res.ok) {
-        throw new Error(res?.error || "Failed to start active audio capture.");
+        throw new Error(res?.error || "Failed to start active capturing state.");
       }
 
       $start.disabled = true;

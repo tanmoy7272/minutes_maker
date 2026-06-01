@@ -264,6 +264,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
 
     return true; // Keep channel open async
+  } else if (msg.action === "launchOffscreen") {
+    startAudioCapture()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true; // Keep channel open async
+  } else if (msg.action === "startCaptureState") {
+    const startTime = Date.now();
+    chrome.storage.local.set({
+      capturing: true,
+      captureStartTime: startTime,
+      activeTabId: msg.tabId,
+      transcript: []
+    }, () => {
+      sendResponse({ ok: true });
+    });
+    return true; // Keep channel open async
   } else if (msg.action === "stop") {
     pendingStopResponse = sendResponse;
     isAutoStopping = false;
