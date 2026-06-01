@@ -315,14 +315,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       triggerStopFlow();
     });
   } else if (msg.action === "offscreenCleanupComplete") {
-    console.log("[Meet Minutes Pro] Offscreen cleanup completed. Closing document...");
-    chrome.offscreen.closeDocument()
-      .then(() => {
-        console.log("[Meet Minutes Pro] Offscreen capture document closed successfully.");
-      })
-      .catch(err => console.warn("[Meet Minutes Pro] Error closing offscreen document:", err))
-      .finally(() => {
-        finalizeStopAndResponse();
+    console.log("[Meet Minutes Pro] Offscreen cleanup completed. Waiting for writing queue to drain...");
+    transcriptQueue = transcriptQueue.then(() => {
+      return new Promise((resolveQueue) => {
+        console.log("[Meet Minutes Pro] Offscreen cleanup completed. Closing document...");
+        chrome.offscreen.closeDocument()
+          .then(() => {
+            console.log("[Meet Minutes Pro] Offscreen capture document closed successfully.");
+          })
+          .catch(err => console.log("[Meet Minutes Pro] Error closing offscreen document:", err))
+          .finally(() => {
+            finalizeStopAndResponse();
+            resolveQueue();
+          });
       });
+    });
   }
 });

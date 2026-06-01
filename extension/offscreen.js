@@ -59,7 +59,7 @@
         micSource.connect(mixedDestination);
         console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
       } catch (micErr) {
-        console.warn("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
+        console.log("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
       }
 
       // 3. Initiate active recording context
@@ -85,7 +85,7 @@
       }
     });
   } else {
-    console.warn("[MMP-Offscreen] chrome.storage is not available. Using direct message-driven capture.");
+    console.log("[MMP-Offscreen] chrome.storage is not available. Using direct message-driven capture.");
   }
 
   // Message listener for direct message-driven transfer (primary)
