@@ -131,8 +131,8 @@ export default function ResultPage() {
           const secondLine = lines[1] || "";
 
           const taskMatch = firstLine.match(/^-\s+\*\*([^*]+)\*\*/);
-          const ownerMatch = firstLine.match(/Owner:\s*([^\s—]+)/i) || firstLine.match(/Owner:\s*([^—\n]+)/i);
-          const dueMatch = firstLine.match(/Due:\s*([^\s—]+)/i) || firstLine.match(/Due:\s*([^\n]+)/i);
+          const ownerMatch = firstLine.match(/Owner:\s*(.*?)(?:\s+—|\s*$)/i);
+          const dueMatch = firstLine.match(/Due:\s*(.*?)(?:\s+—|\s*$)/i);
           const evMatch = secondLine.match(/\*Evidence:\s*\"([^\"]+)\"\*/i);
 
           if (taskMatch) {

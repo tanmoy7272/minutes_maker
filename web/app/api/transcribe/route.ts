@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getGroqKeys } from "../../../lib/llm";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -9,21 +10,6 @@ const CORS_HEADERS = {
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
-
-// Helper to load and pool Groq API keys
-const getGroqKeys = (): string[] => {
-  const keys: string[] = [];
-  if (process.env.GROQ_API_KEYS) {
-    keys.push(...process.env.GROQ_API_KEYS.split(",").map(k => k.trim()).filter(Boolean));
-  }
-  for (let i = 1; i <= 5; i++) {
-    const key = process.env[`GROQ_API_KEY_${i}`];
-    if (key) {
-      keys.push(key.trim());
-    }
-  }
-  return Array.from(new Set(keys));
-};
 
 export async function POST(request: NextRequest) {
   try {
