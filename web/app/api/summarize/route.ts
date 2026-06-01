@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     const openQuestions = Array.isArray(jsonResult.openQuestions) ? jsonResult.openQuestions : [];
     const participants = Array.isArray(jsonResult.participants) ? jsonResult.participants : [];
 
-    // Format structured JSON output into premium Notion-style markdown segments matching globals.css headers
+    // Action Items with sanitized double quotes in evidence to protect regex parsing in Kanban board
     const markdown = `# Meeting Minutes
 
 ## Summary
@@ -144,7 +144,7 @@ ${executiveSummary}
 ${keyDecisions.map(d => `- **${d.decision}** (${d.timestamp || "—"}) — Rationale: ${d.rationale}`).join("\n") || "- —"}
 
 ## Action Items
-${actionItems.map(a => `- **${a.task}** — Owner: ${a.owner || "—"} — Due: ${a.dueDate || "—"}\n  *Evidence: "${a.evidence}"*`).join("\n") || "- —"}
+${actionItems.map(a => `- **${a.task}** — Owner: ${a.owner || "—"} — Due: ${a.dueDate || "—"}\n  *Evidence: "${(a.evidence || "").replace(/"/g, "'")}"*`).join("\n") || "- —"}
 
 ## Key Points
 ${openQuestions.map(q => `- ${q}`).join("\n") || "- —"}
