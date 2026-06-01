@@ -21,8 +21,19 @@ function validateSummary(json: SummarizeResult, transcript: string): boolean {
     
     for (const item of json.actionItems) {
       const lowerOwner = (item.owner || "").toLowerCase().trim();
+      const isPlaceholderOwner = 
+        !lowerOwner || 
+        lowerOwner === "—" || 
+        lowerOwner === "none" || 
+        lowerOwner === "n/a" || 
+        lowerOwner === "tbd" || 
+        lowerOwner === "unknown" || 
+        lowerOwner === "unassigned" || 
+        lowerOwner.includes("not ") || 
+        lowerOwner.includes("n.a.");
+        
       // Smart Owner Name word-matching supporting full-name inference on first-name captions
-      if (lowerOwner && lowerOwner !== "—" && lowerOwner !== "not mentioned" && lowerOwner !== "none" && lowerOwner !== "not specified" && lowerOwner !== "unassigned") {
+      if (!isPlaceholderOwner) {
         const words = lowerOwner.split(/\s+/).filter(w => w.length > 2);
         const nameFound = words.length > 0 
           ? words.some(word => transcript.toLowerCase().includes(word))
