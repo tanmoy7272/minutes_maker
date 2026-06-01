@@ -17,7 +17,8 @@ import {
   CheckSquare,
   Square,
   User,
-  Quote
+  Quote,
+  Share2
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -28,6 +29,8 @@ export default function ResultPage() {
   const [meetingDate, setMeetingDate] = useState("");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<"all" | "pending" | "completed">("all");
   
   // Sassy Interactive States
   const [viewMode, setViewMode] = useState<"document" | "board">("document");
@@ -178,6 +181,14 @@ export default function ResultPage() {
   const handlePrint = () => {
     if (typeof window !== "undefined") {
       window.print();
+    }
+  };
+
+  const handleShareLink = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
     }
   };
 
@@ -381,6 +392,12 @@ export default function ResultPage() {
     const completedTasks = parsedActionItems.filter(t => t.completed).length;
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
+    const filteredActionItems = parsedActionItems.filter(item => {
+      if (taskFilter === "pending") return !item.completed;
+      if (taskFilter === "completed") return item.completed;
+      return true;
+    });
+
     return (
       <div className="space-y-8 animate-fade-in no-print">
         {/* Executive Summary Card at the top of the board */}
@@ -410,6 +427,28 @@ export default function ResultPage() {
                 className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-500 ease-out shadow-[0_0_12px_rgba(59,130,246,0.6)]" 
                 style={{ width: `${completionRate}%` }}
               />
+            </div>
+
+            {/* Sleek Task Filter Switcher Pills */}
+            <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-bold">
+              <button 
+                onClick={() => setTaskFilter("all")}
+                className={`px-3 py-1.5 rounded-lg border transition-all duration-200 cursor-pointer ${taskFilter === "all" ? "bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-lg shadow-blue-500/10" : "bg-white/5 border-transparent text-slate-400 hover:text-white"}`}
+              >
+                ALL TASKS ({parsedActionItems.length})
+              </button>
+              <button 
+                onClick={() => setTaskFilter("pending")}
+                className={`px-3 py-1.5 rounded-lg border transition-all duration-200 cursor-pointer ${taskFilter === "pending" ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-lg shadow-amber-500/10" : "bg-white/5 border-transparent text-slate-400 hover:text-white"}`}
+              >
+                PENDING ({parsedActionItems.filter(t => !t.completed).length})
+              </button>
+              <button 
+                onClick={() => setTaskFilter("completed")}
+                className={`px-3 py-1.5 rounded-lg border transition-all duration-200 cursor-pointer ${taskFilter === "completed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-lg shadow-emerald-500/10" : "bg-white/5 border-transparent text-slate-400 hover:text-white"}`}
+              >
+                COMPLETED ({parsedActionItems.filter(t => t.completed).length})
+              </button>
             </div>
           </div>
         )}
@@ -458,7 +497,7 @@ export default function ResultPage() {
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
               <h4 className="text-xs font-black uppercase tracking-widest text-blue-400 flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                Action Tasks ({parsedActionItems.length})
+                Action Tasks ({filteredActionItems.length})
               </h4>
             </div>
 
@@ -466,8 +505,12 @@ export default function ResultPage() {
               <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 text-center text-slate-500 text-xs italic">
                 No actionable tasks recorded in this session.
               </div>
+            ) : filteredActionItems.length === 0 ? (
+              <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 text-center text-slate-500 text-xs italic">
+                No tasks found matching this category filter.
+              </div>
             ) : (
-              parsedActionItems.map((item) => (
+              filteredActionItems.map((item) => (
                 <div 
                   key={item.id} 
                   className={`group relative rounded-xl border transition-all duration-300 p-4 ${
@@ -671,6 +714,23 @@ export default function ResultPage() {
             >
               <Download className="h-4 w-4" />
               MD
+            </button>
+
+            <button
+              onClick={handleShareLink}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2.5 text-xs font-semibold text-purple-300 transition-all hover:bg-purple-500/20 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {shareCopied ? (
+                <>
+                  <Check className="h-4 w-4 text-green-400" />
+                  Link Copied!
+                </>
+              ) : (
+                <>
+                  <Share2 className="h-4 w-4" />
+                  Share Link
+                </>
+              )}
             </button>
 
             <button
