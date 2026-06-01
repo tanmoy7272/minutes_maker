@@ -198,56 +198,59 @@
   };
 
   const syncStateWithServiceWorker = () => {
-    chrome.runtime.sendMessage({ action: "ping" }, (res) => {
+    chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
       if (chrome.runtime.lastError) {
-        console.error("[MMP-Popup-Sync] Ping failed:", chrome.runtime.lastError.message);
+        console.error("[MMP-Popup-Sync] Direct storage retrieval failed:", chrome.runtime.lastError.message);
         return;
       }
-      console.log("[MMP-Popup-Sync] Ping state successfully retrieved:", res);
-      if (res) {
-        $lineCount.innerText = `${res.lines || 0} lines`;
+      console.log("[MMP-Popup-Sync] Direct local storage state retrieved successfully:", data);
+      
+      const isCap = !!data.capturing;
+      const lines = data.transcript ? data.transcript.length : 0;
+      
+      $lineCount.innerText = `${lines} lines`;
+      
+      if (isCap || lines > 0) {
+        $captionState.className = "status-pill state-on";
+        $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
+      } else {
+        $captionState.className = "status-pill state-off";
+        $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
+      }
+      
+      if (isCap) {
+        $start.disabled = true;
+        $stop.disabled = false;
+        $visualizer.classList.add("active-capturing");
         
-        if (res.capturing || res.lines > 0) {
-          $captionState.className = "status-pill state-on";
-          $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
-        } else {
-          $captionState.className = "status-pill state-off";
-          $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
+        const startTime = data.captureStartTime || 0;
+        if (startTime) {
+          timerStart = startTime;
+          if (timerInterval) clearInterval(timerInterval);
+          timerInterval = setInterval(() => {
+            const elapsed = Date.now() - timerStart;
+            const s = Math.floor(elapsed / 1000);
+            $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+          }, 1000);
         }
-        
-        if (res.capturing) {
-          $start.disabled = true;
-          $stop.disabled = false;
-          $visualizer.classList.add("active-capturing");
-          
-          if (res.startTime) {
-            timerStart = res.startTime;
-            if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-              const elapsed = Date.now() - timerStart;
-              const s = Math.floor(elapsed / 1000);
-              $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-            }, 1000);
-          }
-        } else if (res.lines > 0) {
-          // Backup session available for compilation or retry
-          $start.disabled = false;
-          $stop.disabled = false;
-          $stop.innerText = "Compile Summary"; // Visual affordance to retry compilation
-          if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-          }
-          $timer.innerText = "00:00:00";
-        } else {
-          $start.disabled = false;
-          $stop.disabled = true;
-          if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-          }
-          $timer.innerText = "00:00:00";
+      } else if (lines > 0) {
+        // Backup session available for compilation or retry
+        $start.disabled = false;
+        $stop.disabled = false;
+        $stop.innerText = "Compile Summary"; // Visual affordance to retry compilation
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
         }
+        $timer.innerText = "00:00:00";
+      } else {
+        $start.disabled = false;
+        $stop.disabled = true;
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        $timer.innerText = "00:00:00";
       }
     });
   };
