@@ -43,34 +43,14 @@ const startAudioCapture = async (tabId) => {
       return;
     }
 
-    // 2. Query standard stream ID for the active tab context
-    const streamId = await new Promise((resolve, reject) => {
-      chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve(id);
-        }
-      });
-    });
-
-    // 3. Launch offscreen document with user media reason
+    // 2. Launch offscreen document with user media reason
     await chrome.offscreen.createDocument({
       url: "offscreen.html",
       reasons: ["USER_MEDIA"],
       justification: "Capture standard tab audio stream for Whisper speech-to-text"
     });
 
-    // 4. Send token to offscreen document to mount mediaRecorder
-    setTimeout(() => {
-      chrome.runtime.sendMessage({
-        action: "initiateCapture",
-        streamId,
-        tabId
-      });
-    }, 500);
-
-    console.log("[Meet Minutes Pro] Offscreen Audio Capture pipeline started successfully.");
+    console.log("[Meet Minutes Pro] Offscreen Audio Capture document created successfully.");
   } catch (err) {
     console.error("[Meet Minutes Pro] Failed to start active tab capture:", err);
     throw err;
@@ -260,8 +240,10 @@ const triggerStopFlow = async () => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "start") {
     const tabId = sender.tab?.id || msg.tabId;
-    if (!tabId) {
-      sendResponse({ ok: false, error: "Missing active tab ID" });
+    const streamId = msg.streamId;
+    
+    if (!tabId || !streamId) {
+      sendResponse({ ok: false, error: "Missing active tab ID or capture stream ID" });
       return;
     }
 
@@ -271,6 +253,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       capturing: true,
       captureStartTime: startTime,
       activeTabId: tabId,
+      tempStreamId: streamId,
       transcript: []
     }, () => {
       startAudioCapture(tabId)

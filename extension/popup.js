@@ -30,8 +30,25 @@
         throw new Error("Active Google Meet tab not found. Please select a Meet tab first!");
       }
 
-      console.log(`[MMP-Popup] Initiating tab capture on tab ID: ${tab.id}`);
-      const res = await chrome.runtime.sendMessage({ action: "start", tabId: tab.id });
+      console.log(`[MMP-Popup] Querying tab capture stream ID for tab ID: ${tab.id}`);
+      
+      // Query streamId directly inside the user-gesture click handler context
+      const streamId = await new Promise((resolve, reject) => {
+        chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(id);
+          }
+        });
+      });
+
+      console.log(`[MMP-Popup] Stream ID generated: ${streamId}. Starting audio capture pipeline...`);
+      const res = await chrome.runtime.sendMessage({ 
+        action: "start", 
+        tabId: tab.id,
+        streamId: streamId 
+      });
       
       if (!res || !res.ok) {
         throw new Error(res?.error || "Failed to start active audio capture.");

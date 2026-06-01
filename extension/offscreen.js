@@ -7,64 +7,72 @@
   let recordingActive = false;
   let portalUrl = "https://minutes-maker-five.vercel.app";
 
-  // Load configured portal URL from storage
-  chrome.storage.local.get(["portalUrl"], (data) => {
+  // On startup, retrieve stored capture parameters and immediately begin stream consumption
+  chrome.storage.local.get(["tempStreamId", "portalUrl"], async (data) => {
     if (data.portalUrl) {
       portalUrl = data.portalUrl;
+    }
+    
+    const streamId = data.tempStreamId;
+    if (!streamId) {
+      console.warn("[MMP-Offscreen] No active stream ID found in storage on mount.");
+      return;
+    }
+
+    // Clean up temporary streamId immediately to protect lifecycle tokens
+    chrome.storage.local.remove(["tempStreamId"]);
+    
+    console.log(`[MMP-Offscreen] Initiating capture for stream ID: ${streamId}`);
+    
+    try {
+      // 1. Capture the exact tab audio stream using standard mediaDevices token
+      const tabStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: "tab",
+            chromeMediaSourceId: streamId
+          }
+        },
+        video: false
+      });
+
+      // 2. WEB AUDIO MIX & LOOPBACK: Capture silences local tab speakers natively.
+      // We link the tab audio to speakers (destination) so the user continues hearing other participants,
+      // and mix both the tab audio and the host's microphone together for MediaRecorder.
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const tabSource = audioCtx.createMediaStreamSource(tabStream);
+      
+      // Loop back tab audio to speakers
+      tabSource.connect(audioCtx.destination);
+      console.log("[MMP-Offscreen] Web Audio Loopback speaker pipe successful.");
+
+      // Create a mixed destination stream to record both inputs
+      const mixedDestination = audioCtx.createMediaStreamDestination();
+      tabSource.connect(mixedDestination);
+
+      let finalStream = mixedDestination.stream;
+
+      // Try to capture user's own microphone and mix it in
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micSource = audioCtx.createMediaStreamSource(micStream);
+        micSource.connect(mixedDestination);
+        console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
+      } catch (micErr) {
+        console.warn("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
+        // Fallback: finalStream already contains tab audio via mixedDestination, which is perfect.
+      }
+
+      // 3. Initiate active recording context
+      startRecordingStream(finalStream);
+    } catch (err) {
+      console.error("[MMP-Offscreen] getUserMedia tab capture failed:", err);
+      chrome.runtime.sendMessage({ action: "captureError", error: err.message });
     }
   });
 
   chrome.runtime.onMessage.addListener(async (msg) => {
-    if (msg.action === "initiateCapture") {
-      const { streamId } = msg;
-      console.log(`[MMP-Offscreen] Initiating capture for stream ID: ${streamId}`);
-      
-      try {
-        // 1. Capture the exact tab audio stream using standard mediaDevices token
-        const tabStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            mandatory: {
-              chromeMediaSource: "tab",
-              chromeMediaSourceId: streamId
-            }
-          },
-          video: false
-        });
-
-        // 2. WEB AUDIO MIX & LOOPBACK: Capture silences local tab speakers natively.
-        // We link the tab audio to speakers (destination) so the user continues hearing other participants,
-        // and mix both the tab audio and the host's microphone together for MediaRecorder.
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const tabSource = audioCtx.createMediaStreamSource(tabStream);
-        
-        // Loop back tab audio to speakers
-        tabSource.connect(audioCtx.destination);
-        console.log("[MMP-Offscreen] Web Audio Loopback speaker pipe successful.");
-
-        // Create a mixed destination stream to record both inputs
-        const mixedDestination = audioCtx.createMediaStreamDestination();
-        tabSource.connect(mixedDestination);
-
-        let finalStream = mixedDestination.stream;
-
-        // Try to capture user's own microphone and mix it in
-        try {
-          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const micSource = audioCtx.createMediaStreamSource(micStream);
-          micSource.connect(mixedDestination);
-          console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
-        } catch (micErr) {
-          console.warn("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
-          // Fallback: finalStream already contains tab audio via mixedDestination, which is perfect.
-        }
-
-        // 3. Initiate active recording context
-        startRecordingStream(finalStream);
-      } catch (err) {
-        console.error("[MMP-Offscreen] getUserMedia tab capture failed:", err);
-        chrome.runtime.sendMessage({ action: "captureError", error: err.message });
-      }
-    } else if (msg.action === "stopCapture") {
+    if (msg.action === "stopCapture") {
       console.log("[MMP-Offscreen] Received stopCapture instruction.");
       stopRecordingStream();
     }
