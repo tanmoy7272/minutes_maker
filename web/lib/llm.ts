@@ -91,7 +91,12 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
 async function callGemini(prompt: string, system: string): Promise<string> {
   const geminiKey = process.env.LLM_FALLBACK_KEY;
   if (!geminiKey) {
-    throw new Error("Gemini fallback key (LLM_FALLBACK_KEY) is not defined");
+    console.warn("[MMP-LLM] Gemini fallback key (LLM_FALLBACK_KEY) is not defined. Attempting Groq llama-3.3-70b-versatile as final self-healing fallback...");
+    const groqKeys = getGroqKeys();
+    if (groqKeys.length === 0) {
+      throw new Error("Neither Groq API keys nor Gemini fallback API key (LLM_FALLBACK_KEY) are configured in the environment.");
+    }
+    return callGroqFallback(prompt, system, groqKeys[0]);
   }
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`;
@@ -126,5 +131,47 @@ async function callGemini(prompt: string, system: string): Promise<string> {
   } catch (err: any) {
     console.error("[MMP] Gemini fallback also failed:", err);
     throw new Error(`All LLM providers failed. Gemini Error: ${err.message || err}`);
+  }
+}
+
+async function callGroqFallback(prompt: string, system: string, key: string): Promise<string> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.1, // slightly higher temperature to encourage creative structural compliance
+        response_format: { type: "json_object" }
+      }),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeout);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("Empty content in Groq fallback response");
+    }
+    
+    console.log("[MMP-LLM] Groq final self-healing fallback succeeded.");
+    return content.replace(/```json|```/g, '').trim();
+  } catch (err: any) {
+    throw new Error(`Groq final self-healing fallback failed: ${err.message || err}`);
   }
 }
