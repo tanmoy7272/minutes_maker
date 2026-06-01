@@ -207,9 +207,14 @@
   // Sync state initially with service worker
   (async () => {
     const tab = await getMeetTab();
+    console.log("[MMP-Popup-Sync] Initial sync starting. getMeetTab returned:", tab ? `Tab ID: ${tab.id}` : "null");
     if (tab) {
       chrome.runtime.sendMessage({ action: "ping" }, (res) => {
-        if (chrome.runtime.lastError) return;
+        if (chrome.runtime.lastError) {
+          console.error("[MMP-Popup-Sync] Ping failed:", chrome.runtime.lastError.message);
+          return;
+        }
+        console.log("[MMP-Popup-Sync] Ping state successfully retrieved:", res);
         if (res) {
           $lineCount.innerText = `${res.lines || 0} lines`;
           

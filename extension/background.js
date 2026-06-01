@@ -308,6 +308,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
   } else if (msg.action === "ping") {
     chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
+      console.log("[MMP-SW-Sync] SW Ping received. Current local storage state:", data);
       const isCap = !!data.capturing;
       const lines = data.transcript ? data.transcript.length : 0;
       sendResponse({
