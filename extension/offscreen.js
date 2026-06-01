@@ -71,18 +71,22 @@
   };
 
   // On startup, retrieve stored capture parameters (fallback)
-  chrome.storage.local.get(["tempStreamId", "portalUrl"], async (data) => {
-    if (data.portalUrl) {
-      portalUrl = data.portalUrl;
-    }
-    
-    const streamId = data.tempStreamId;
-    if (streamId) {
-      chrome.storage.local.remove(["tempStreamId"]);
-      console.log("[MMP-Offscreen] Found stream ID in storage on load.");
-      initCaptureFlow(streamId);
-    }
-  });
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get(["tempStreamId", "portalUrl"], async (data) => {
+      if (data.portalUrl) {
+        portalUrl = data.portalUrl;
+      }
+      
+      const streamId = data.tempStreamId;
+      if (streamId) {
+        chrome.storage.local.remove(["tempStreamId"]);
+        console.log("[MMP-Offscreen] Found stream ID in storage on load.");
+        initCaptureFlow(streamId);
+      }
+    });
+  } else {
+    console.warn("[MMP-Offscreen] chrome.storage is not available. Using direct message-driven capture.");
+  }
 
   // Message listener for direct message-driven transfer (primary)
   chrome.runtime.onMessage.addListener(async (msg) => {
