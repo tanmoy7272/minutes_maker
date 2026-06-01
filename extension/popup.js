@@ -36,13 +36,17 @@
         throw new Error(launchRes?.error || "Failed to launch offscreen context.");
       }
 
-      // Request microphone permission inside a user gesture context first to avoid offscreen prompt hangs (Issue 3)
+      // Check microphone permission before proceeding to prevent silent capturing failures (Issue 3)
+      let hasMicPermission = false;
       try {
-        console.log("[MMP-Popup] 2. Pre-checking microphone permissions...");
-        const tempMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        tempMicStream.getTracks().forEach(track => track.stop());
-      } catch (micPromptErr) {
-        console.warn("[MMP-Popup] Microphone permission check skipped or denied:", micPromptErr);
+        const permStatus = await navigator.permissions.query({ name: "microphone" });
+        hasMicPermission = permStatus.state === "granted";
+      } catch (_) {}
+
+      if (!hasMicPermission) {
+        console.log("[MMP-Popup] Microphone permission missing. Launching onboarding permission tab...");
+        chrome.tabs.create({ url: "permission.html" });
+        return;
       }
 
       console.log(`[MMP-Popup] 3. Querying tab capture stream ID for tab ID: ${tab.id}`);
