@@ -11,8 +11,8 @@ const PORTAL_URL = "https://minutes-maker-five.vercel.app/";
 
 // ── Install / Update ─────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener((details) => {
-  chrome.storage.local.set({ 
-    version: "1.2.0", 
+  chrome.storage.local.set({
+    version: "1.2.0",
     portalUrl: PORTAL_URL,
     capturing: false,
     transcript: [],
@@ -30,27 +30,44 @@ chrome.runtime.onInstalled.addListener((details) => {
   console.log(`[Meet Minutes Pro] Whisper Audio Capture installed v1.2.0`);
 });
 
+// Helper to check if offscreen document is active with backward compatibility support
+const hasOffscreenDocument = async () => {
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getContexts) {
+    try {
+      const contexts = await chrome.runtime.getContexts({
+        contextTypes: ["OFFSCREEN_DOCUMENT"]
+      });
+      return contexts.length > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+  return false;
+};
+
 // ── Offscreen Audio Capturing Lifecycle Manager ──────────────────────────────
 const startAudioCapture = async (tabId) => {
   try {
-    // 1. Check if offscreen context is already active
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"]
-    });
-    
-    if (contexts.length > 0) {
+    const active = await hasOffscreenDocument();
+    if (active) {
       console.log("[Meet Minutes Pro] Offscreen capture document already active.");
       return;
     }
 
-    // 2. Launch offscreen document with user media reason
-    await chrome.offscreen.createDocument({
-      url: "offscreen.html",
-      reasons: ["USER_MEDIA"],
-      justification: "Capture standard tab audio stream for Whisper speech-to-text"
-    });
-
-    console.log("[Meet Minutes Pro] Offscreen Audio Capture document created successfully.");
+    try {
+      await chrome.offscreen.createDocument({
+        url: "offscreen.html",
+        reasons: ["USER_MEDIA"],
+        justification: "Capture standard tab audio stream for Whisper speech-to-text"
+      });
+      console.log("[Meet Minutes Pro] Offscreen Audio Capture document created successfully.");
+    } catch (createErr) {
+      if (createErr.message && createErr.message.includes("Only one offscreen document")) {
+        console.log("[Meet Minutes Pro] Offscreen capture document already active (via create error).");
+      } else {
+        throw createErr;
+      }
+    }
   } catch (err) {
     console.error("[Meet Minutes Pro] Failed to start active tab capture:", err);
     throw err;
@@ -59,21 +76,23 @@ const startAudioCapture = async (tabId) => {
 
 const stopAudioCapture = async () => {
   try {
-    // Notify offscreen script to stop recording and release AudioContext
     try {
       await chrome.runtime.sendMessage({ action: "stopCapture" });
-    } catch (_) {}
+    } catch (_) { }
 
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"]
-    });
-    
-    if (contexts.length > 0) {
-      await chrome.offscreen.closeDocument();
-      console.log("[Meet Minutes Pro] Offscreen capture document closed.");
+    const active = await hasOffscreenDocument();
+    if (active || (typeof chrome !== "undefined" && typeof chrome.runtime.getContexts === "undefined")) {
+      try {
+        await chrome.offscreen.closeDocument();
+        console.log("[Meet Minutes Pro] Offscreen capture document closed.");
+      } catch (closeErr) {
+        if (closeErr.message && !closeErr.message.includes("No offscreen document")) {
+          console.warn("[Meet Minutes Pro] Error closing offscreen document:", closeErr);
+        }
+      }
     }
   } catch (err) {
-    console.warn("[Meet Minutes Pro] Error closing offscreen document:", err);
+    console.warn("[Meet Minutes Pro] Error in stopAudioCapture:", err);
   }
 };
 
@@ -126,19 +145,19 @@ const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) =>
     const res = await fetch(`${PORTAL_URL}api/summarize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        previousSummary: prevSummary, 
+      body: JSON.stringify({
+        previousSummary: prevSummary,
         chunk: transcriptText,
         version: chrome.runtime.getManifest().version
       }),
       signal: controller.signal
     });
     clearTimeout(t);
-    
+
     if (res.status === 426) {
       throw new Error("Update required");
     }
-    
+
     if (!res.ok) throw new Error("Server rejected request");
     const data = await res.json();
     return data.markdown || "";
@@ -166,7 +185,7 @@ const appendToTranscript = (cleanText) => {
           // Notify active popup that new transcript text has flowed in
           try {
             chrome.runtime.sendMessage({ event: "captionsDetected" });
-          } catch (_) {}
+          } catch (_) { }
           resolve();
         });
       });
@@ -213,11 +232,8 @@ const finalizeStopAndResponse = () => {
 
 const triggerStopFlow = async () => {
   try {
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"]
-    });
-
-    if (contexts.length > 0) {
+    const active = await hasOffscreenDocument();
+    if (active || (typeof chrome !== "undefined" && typeof chrome.runtime.getContexts === "undefined")) {
       console.log("[Meet Minutes Pro] Active offscreen context found. Requesting stop Capture...");
       chrome.runtime.sendMessage({ action: "stopCapture" }, () => {
         if (chrome.runtime.lastError) {
@@ -240,7 +256,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "start") {
     const tabId = sender.tab?.id || msg.tabId;
     const streamId = msg.streamId;
-    
+
     if (!tabId || !streamId) {
       sendResponse({ ok: false, error: "Missing active tab ID or capture stream ID" });
       return;
@@ -294,10 +310,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
       const isCap = !!data.capturing;
       const lines = data.transcript ? data.transcript.length : 0;
-      sendResponse({ 
-        ok: true, 
-        capturing: isCap, 
-        lines, 
+      sendResponse({
+        ok: true,
+        capturing: isCap,
+        lines,
         startTime: data.captureStartTime || 0,
         isCaptionsOn: isCap || lines > 0
       });
@@ -311,7 +327,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg.action === "autoStopAndSummarize") {
     chrome.storage.local.get(["capturing"], (data) => {
       if (!data.capturing) return; // Already manually stopped or not capturing
-      
+
       console.log("[Meet Minutes Pro] Supervisor detected hangup. Initiating auto-stop...");
       isAutoStopping = true;
       pendingStopResponse = null;
