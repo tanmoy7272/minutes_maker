@@ -20,12 +20,13 @@ function validateSummary(json: SummarizeResult, transcript: string): boolean {
     if (!json.executiveSummary || !Array.isArray(json.actionItems)) return false;
     
     for (const item of json.actionItems) {
-      // Smart Owner Name word-matching to support full-name inference on first-name captions
-      if (item.owner && item.owner !== "—" && item.owner !== "Not mentioned" && item.owner !== "None") {
-        const words = item.owner.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const lowerOwner = (item.owner || "").toLowerCase().trim();
+      // Smart Owner Name word-matching supporting full-name inference on first-name captions
+      if (lowerOwner && lowerOwner !== "—" && lowerOwner !== "not mentioned" && lowerOwner !== "none" && lowerOwner !== "not specified" && lowerOwner !== "unassigned") {
+        const words = lowerOwner.split(/\s+/).filter(w => w.length > 2);
         const nameFound = words.length > 0 
           ? words.some(word => transcript.toLowerCase().includes(word))
-          : transcript.toLowerCase().includes(item.owner.toLowerCase());
+          : transcript.toLowerCase().includes(lowerOwner);
           
         if (!nameFound) {
           console.warn(`[MMP] Owner validation failed: "${item.owner}" not found in transcript.`);
@@ -126,25 +127,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Defensive defaults safeguarding against optional or missing JSON keys in LLM output
+    const executiveSummary = jsonResult.executiveSummary || "Meeting summary not generated.";
+    const keyDecisions = Array.isArray(jsonResult.keyDecisions) ? jsonResult.keyDecisions : [];
+    const actionItems = Array.isArray(jsonResult.actionItems) ? jsonResult.actionItems : [];
+    const openQuestions = Array.isArray(jsonResult.openQuestions) ? jsonResult.openQuestions : [];
+    const participants = Array.isArray(jsonResult.participants) ? jsonResult.participants : [];
+
     // Format structured JSON output into premium Notion-style markdown segments matching globals.css headers
     const markdown = `# Meeting Minutes
 
 ## Summary
-${jsonResult.executiveSummary}
+${executiveSummary}
 
 ## Decisions
-${jsonResult.keyDecisions.map(d => `- **${d.decision}** (${d.timestamp || "—"}) — Rationale: ${d.rationale}`).join("\n") || "- —"}
+${keyDecisions.map(d => `- **${d.decision}** (${d.timestamp || "—"}) — Rationale: ${d.rationale}`).join("\n") || "- —"}
 
 ## Action Items
-${jsonResult.actionItems.map(a => `- **${a.task}** — Owner: ${a.owner || "—"} — Due: ${a.dueDate || "—"}\n  *Evidence: "${a.evidence}"*`).join("\n") || "- —"}
+${actionItems.map(a => `- **${a.task}** — Owner: ${a.owner || "—"} — Due: ${a.dueDate || "—"}\n  *Evidence: "${a.evidence}"*`).join("\n") || "- —"}
 
 ## Key Points
-${jsonResult.openQuestions.map(q => `- ${q}`).join("\n") || "- —"}
+${openQuestions.map(q => `- ${q}`).join("\n") || "- —"}
 
 ## Participants
-${jsonResult.participants.join(", ") || "—"}`;
+${participants.join(", ") || "—"}`;
 
-    return new NextResponse(JSON.stringify({ summary: jsonResult.executiveSummary, markdown }), { status: 200, headers: CORS_HEADERS });
+    return new NextResponse(JSON.stringify({ summary: executiveSummary, markdown }), { status: 200, headers: CORS_HEADERS });
   } catch (error: any) {
     console.error("[MMP] Summarize API route error:", error);
     return new NextResponse(JSON.stringify({ error: error.message }), { status: 500, headers: CORS_HEADERS });

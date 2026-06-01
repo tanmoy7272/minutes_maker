@@ -149,6 +149,7 @@
     $visualizer.classList.remove("active-capturing");
     $start.disabled = false;
     $stop.disabled = true;
+    $stop.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="btn-icon"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>Stop Capture';
     $timer.innerText = "00:00:00";
     $lineCount.innerText = "0 lines";
     $captionState.className = "status-pill state-off";
@@ -211,6 +212,14 @@
                 $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
               }, 1000);
             }
+          } else if (res.lines > 0) {
+            // Backup session available for compilation or retry
+            $start.disabled = false;
+            $stop.disabled = false;
+            $stop.innerText = "Compile Summary"; // Visual affordance to retry compilation
+          } else {
+            $start.disabled = false;
+            $stop.disabled = true;
           }
         }
       });

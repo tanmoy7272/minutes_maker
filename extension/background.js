@@ -91,8 +91,7 @@ const cleanupActiveSession = () => {
   chrome.storage.local.set({
     capturing: false,
     activeTabId: null,
-    captureStartTime: 0,
-    transcript: []
+    captureStartTime: 0
   });
 
   stopAudioCapture();
@@ -271,8 +270,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     triggerStopFlow();
     return true; // Keep channel open async
   } else if (msg.action === "clear") {
-    cleanupActiveSession();
-    sendResponse({ ok: true });
+    chrome.storage.local.set({ transcript: [] }, () => {
+      cleanupActiveSession();
+      sendResponse({ ok: true });
+    });
   } else if (msg.action === "ping") {
     chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
       const isCap = !!data.capturing;
