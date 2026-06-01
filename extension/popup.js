@@ -18,8 +18,15 @@
   };
 
   const getMeetTab = async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    return tab?.url?.includes("meet.google.com") ? tab : null;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab?.url?.includes("meet.google.com")) return tab;
+    } catch (_) {}
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url?.includes("meet.google.com")) return tab;
+    } catch (_) {}
+    return null;
   };
 
   // Start Capture Click
@@ -79,7 +86,8 @@
       $start.disabled = true;
       $stop.disabled = false;
       $visualizer.classList.add("active-capturing");
-      timerStart = Date.now();
+      timerStart = res.startTime || Date.now();
+      if (timerInterval) clearInterval(timerInterval);
       timerInterval = setInterval(() => {
         const elapsed = Date.now() - timerStart;
         const s = Math.floor(elapsed / 1000);
@@ -189,67 +197,68 @@
     }
   };
 
+  const syncStateWithServiceWorker = () => {
+    chrome.runtime.sendMessage({ action: "ping" }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.error("[MMP-Popup-Sync] Ping failed:", chrome.runtime.lastError.message);
+        return;
+      }
+      console.log("[MMP-Popup-Sync] Ping state successfully retrieved:", res);
+      if (res) {
+        $lineCount.innerText = `${res.lines || 0} lines`;
+        
+        if (res.capturing || res.lines > 0) {
+          $captionState.className = "status-pill state-on";
+          $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
+        } else {
+          $captionState.className = "status-pill state-off";
+          $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
+        }
+        
+        if (res.capturing) {
+          $start.disabled = true;
+          $stop.disabled = false;
+          $visualizer.classList.add("active-capturing");
+          
+          if (res.startTime) {
+            timerStart = res.startTime;
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+              const elapsed = Date.now() - timerStart;
+              const s = Math.floor(elapsed / 1000);
+              $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+            }, 1000);
+          }
+        } else if (res.lines > 0) {
+          // Backup session available for compilation or retry
+          $start.disabled = false;
+          $stop.disabled = false;
+          $stop.innerText = "Compile Summary"; // Visual affordance to retry compilation
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+          $timer.innerText = "00:00:00";
+        } else {
+          $start.disabled = false;
+          $stop.disabled = true;
+          if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+          }
+          $timer.innerText = "00:00:00";
+        }
+      }
+    });
+  };
+
   // Whisper Segment Transcribed Message Listener
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.event === "captionsDetected") {
-      $captionState.className = "status-pill state-on";
-      $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
-      
-      // Update the lines counter actively as Whisper segment transcripts roll in
-      chrome.runtime.sendMessage({ action: "ping" }, (res) => {
-        if (res) {
-          $lineCount.innerText = `${res.lines || 0} lines`;
-        }
-      });
+      syncStateWithServiceWorker();
     }
   });
 
   // Sync state initially with service worker
-  (async () => {
-    const tab = await getMeetTab();
-    console.log("[MMP-Popup-Sync] Initial sync starting. getMeetTab returned:", tab ? `Tab ID: ${tab.id}` : "null");
-    if (tab) {
-      chrome.runtime.sendMessage({ action: "ping" }, (res) => {
-        if (chrome.runtime.lastError) {
-          console.error("[MMP-Popup-Sync] Ping failed:", chrome.runtime.lastError.message);
-          return;
-        }
-        console.log("[MMP-Popup-Sync] Ping state successfully retrieved:", res);
-        if (res) {
-          $lineCount.innerText = `${res.lines || 0} lines`;
-          
-          if (res.capturing || res.lines > 0) {
-            $captionState.className = "status-pill state-on";
-            $captionState.innerHTML = '<span class="pill-dot animate-pulse"></span><span class="pill-text">REC</span>';
-          } else {
-            $captionState.className = "status-pill state-off";
-            $captionState.innerHTML = '<span class="pill-dot"></span><span class="pill-text">OFF</span>';
-          }
-          
-          if (res.capturing) {
-            $start.disabled = true;
-            $stop.disabled = false;
-            $visualizer.classList.add("active-capturing");
-            
-            if (res.startTime) {
-              timerStart = res.startTime;
-              timerInterval = setInterval(() => {
-                const elapsed = Date.now() - timerStart;
-                const s = Math.floor(elapsed / 1000);
-                $timer.innerText = `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-              }, 1000);
-            }
-          } else if (res.lines > 0) {
-            // Backup session available for compilation or retry
-            $start.disabled = false;
-            $stop.disabled = false;
-            $stop.innerText = "Compile Summary"; // Visual affordance to retry compilation
-          } else {
-            $start.disabled = false;
-            $stop.disabled = true;
-          }
-        }
-      });
-    }
-  })();
+  syncStateWithServiceWorker();
 })();

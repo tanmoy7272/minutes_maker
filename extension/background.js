@@ -20,8 +20,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     activeTabId: null
   });
 
-  // Alarm to check on active capture state
-  chrome.alarms.create("healthCheck", { periodInMinutes: 1 });
+
 
   if (details.reason === "install") {
     chrome.tabs.create({ url: PORTAL_URL });
@@ -116,26 +115,7 @@ const cleanupActiveSession = () => {
   stopAudioCapture();
 };
 
-// ── Health-Check Alarm ───────────────────────────────────────────────────────
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== "healthCheck") return;
 
-  chrome.storage.local.get(["capturing", "activeTabId"], (data) => {
-    if (!data.capturing || !data.activeTabId) return;
-
-    // Send a safe ping message to tab to see if it's still alive
-    chrome.tabs.sendMessage(
-      data.activeTabId,
-      { action: "ping" },
-      (response) => {
-        if (chrome.runtime.lastError || !response?.ok) {
-          console.warn("[Meet Minutes Pro] Health check failed — tearing down capturing.");
-          cleanupActiveSession();
-        }
-      }
-    );
-  });
-});
 
 // ── Background API Summarizer (Force Upgrade safe) ───────────────────────────
 const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) => {
@@ -293,7 +273,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       activeTabId: msg.tabId,
       transcript: []
     }, () => {
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, startTime });
     });
     return true; // Keep channel open async
   } else if (msg.action === "stop") {
