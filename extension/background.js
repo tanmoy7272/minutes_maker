@@ -300,6 +300,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       cleanupActiveSession();
       sendResponse({ ok: true });
     });
+    return true; // Keep channel open async
   } else if (msg.action === "ping") {
     chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
       console.log("[MMP-SW-Sync] SW Ping received. Current local storage state:", data);
