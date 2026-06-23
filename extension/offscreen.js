@@ -89,7 +89,7 @@
   }
 
   // Message listener for direct message-driven transfer (primary)
-  chrome.runtime.onMessage.addListener(async (msg) => {
+  chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "initiateCapture") {
       console.log("[MMP-Offscreen] Received initiateCapture message.");
       initCaptureFlow(msg.streamId);
