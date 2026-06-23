@@ -91,12 +91,12 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
 }
 
 async function callGemini(prompt: string, system: string): Promise<string> {
-  const geminiKey = process.env.LLM_FALLBACK_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.LLM_FALLBACK_KEY;
   if (!geminiKey) {
-    console.warn("[MMP-LLM] Gemini fallback key (LLM_FALLBACK_KEY) is not defined. Attempting Groq llama-3.3-70b-versatile as final self-healing fallback...");
+    console.warn("[MMP-LLM] Gemini API key (GEMINI_API_KEY or LLM_FALLBACK_KEY) is not defined. Attempting Groq llama-3.3-70b-versatile as final self-healing fallback...");
     const groqKeys = getGroqKeys();
     if (groqKeys.length === 0) {
-      throw new Error("Neither Groq API keys nor Gemini fallback API key (LLM_FALLBACK_KEY) are configured in the environment.");
+      throw new Error("Neither Groq API keys nor Gemini API key (GEMINI_API_KEY or LLM_FALLBACK_KEY) are configured in the environment.");
     }
     return callGroqFallback(prompt, system, groqKeys[0]);
   }

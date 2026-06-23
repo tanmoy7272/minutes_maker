@@ -120,7 +120,7 @@ const cleanupActiveSession = () => {
 // ── Background API Summarizer (Force Upgrade safe) ───────────────────────────
 const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) => {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  const t = setTimeout(() => controller.abort(), 60000); // 60s timeout
   try {
     const res = await fetch(`${PORTAL_URL}api/summarize`, {
       method: "POST",
@@ -271,6 +271,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       capturing: true,
       captureStartTime: startTime,
       activeTabId: msg.tabId,
+      tempStreamId: msg.streamId, // Store the stream ID!
       transcript: []
     }, () => {
       sendResponse({ ok: true, startTime });

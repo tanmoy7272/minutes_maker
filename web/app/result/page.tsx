@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { 
   Copy, 
   Download, 
@@ -131,15 +132,15 @@ export default function ResultPage() {
           const secondLine = lines[1] || "";
 
           const taskMatch = firstLine.match(/^-\s+\*\*([^*]+)\*\*/);
-          const ownerMatch = firstLine.match(/Owner:\s*(.*?)(?:\s+—|\s*$)/i);
-          const dueMatch = firstLine.match(/Due:\s*(.*?)(?:\s+—|\s*$)/i);
+          const ownerMatch = firstLine.match(/Owner:\s*(.*?)(?:\s+[-—–]|\s*$)/i);
+          const dueMatch = firstLine.match(/Due:\s*(.*?)(?:\s+[-—–]|\s*$)/i);
           const evMatch = secondLine.match(/\*Evidence:\s*\"([^\"]+)\"\*/i);
 
           if (taskMatch) {
             actions.push({
               id: idCounter++,
               task: taskMatch[1].trim(),
-              owner: ownerMatch ? ownerMatch[1].trim().replace(/(—|$)/g, "") : "Not mentioned",
+              owner: ownerMatch ? ownerMatch[1].trim().replace(/([-—–]|$)/g, "") : "Not mentioned",
               dueDate: dueMatch ? dueMatch[1].trim() : "Not mentioned",
               evidence: evMatch ? evMatch[1].trim() : "Verbatim evidence not recorded",
               completed: false
@@ -612,23 +613,23 @@ export default function ResultPage() {
             No Meeting Minutes Detected
           </h2>
           <p className="mt-3 text-slate-400 text-sm leading-relaxed">
-            Please host or join a Google Meet, open our extension popup, activate audio capture, and press "Stop Capture" when finished to view your structured meeting minutes here.
+            Please host or join a Google Meet, open our extension popup, activate audio capture, and press &quot;Stop Capture&quot; when finished to view your structured meeting minutes here.
           </p>
           <div className="mt-8 flex flex-col gap-3 w-full sm:flex-row">
-            <a
+            <Link
               href="/"
               className="flex items-center justify-center gap-2 rounded-xl bg-white/5 border border-white/10 px-5 py-3 text-xs font-semibold text-slate-300 transition-all hover:bg-white/10 hover:text-white w-full sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to Home
-            </a>
-            <a
+            </Link>
+            <Link
               href="/#install-guide"
               className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 px-5 py-3 text-xs font-semibold text-white shadow-lg transition-all hover:scale-[1.02] w-full sm:w-auto"
             >
               <FileText className="h-4 w-4" />
               Installation Guide
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -639,13 +640,13 @@ export default function ResultPage() {
     <div className="min-h-screen py-10 px-4 sm:px-6 lg:px-8">
       {/* Back button */}
       <div className="mx-auto max-w-3xl mb-6 no-print">
-        <a 
+        <Link 
           href="/" 
           className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to Home
-        </a>
+        </Link>
       </div>
 
       <main className="mx-auto max-w-3xl rounded-2xl border border-white/10 bg-slate-950/40 p-6 sm:p-8 shadow-2xl backdrop-blur-md print-card">

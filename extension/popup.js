@@ -46,8 +46,8 @@
       // Check microphone permission before proceeding to prevent silent capturing failures (Issue 3)
       let hasMicPermission = false;
       try {
-        const permStatus = await navigator.permissions.query({ name: "microphone" });
-        hasMicPermission = permStatus.state === "granted";
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        hasMicPermission = devices.some(device => device.kind === "audioinput" && device.label !== "");
       } catch (_) {}
 
       if (!hasMicPermission) {
@@ -76,7 +76,8 @@
       console.log("[MMP-Popup] 5. Syncing active capturing metadata to service worker...");
       const res = await chrome.runtime.sendMessage({ 
         action: "startCaptureState", 
-        tabId: tab.id 
+        tabId: tab.id,
+        streamId: streamId
       });
       
       if (!res || !res.ok) {
@@ -140,7 +141,7 @@
 
   const callSummarizeAPI = async (prevSummary, transcript, isRetry = false) => {
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const t = setTimeout(() => controller.abort(), 60000); // 60s timeout
     try {
       console.log("[MMP-Popup] Sending transcripts to summarize API...");
       const currentVersion = chrome.runtime.getManifest().version;
@@ -162,12 +163,20 @@
         throw new Error("Update required to continue");
       }
 
+      if (res.status === 429) {
+        throw new Error("Rate limit exceeded. Max 20 requests per hour.");
+      }
+
+      if (res.status === 403) {
+        throw new Error("Unauthorized extension origin check failed.");
+      }
+
       if (!res.ok) throw new Error("Server rejected request");
       const data = await res.json();
       return data.markdown || "";
     } catch (e) {
       clearTimeout(t);
-      if (e.message === "Update required to continue") throw e;
+      if (e.message === "Update required to continue" || e.message.includes("Rate limit") || e.message.includes("Unauthorized")) throw e;
       if (!isRetry) return callSummarizeAPI(prevSummary, transcript, true); // Retry once
       showToast("Offline - will sync later", "error");
       throw e;

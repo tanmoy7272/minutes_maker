@@ -1,11 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { summarizeTranscript } from "../../../lib/transcript";
+import { rateLimit } from "../../../lib/rateLimit";
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS, HEAD",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+export const maxDuration = 60;
+
+function getCorsHeaders(request: NextRequest) {
+  const origin = request.headers.get("origin") || "";
+  const allowedOrigin = (origin.startsWith("chrome-extension://") || origin.includes("localhost") || origin.includes("127.0.0.1")) 
+    ? origin 
+    : "*";
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS, HEAD",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
 
 interface KeyDecision {
   decision: string;
@@ -131,14 +141,21 @@ function validateAndSelfHeal(json: any, transcript: string): boolean {
         if (isPlaceholderOwner) {
           owner = "Unassigned";
         } else {
-          // Check if owner name exists in the transcript
+          // Check if owner name exists in the transcript or extracted participants
+          const lowerParticipants = Array.isArray(json.participants)
+            ? json.participants.map((p: any) => String(p || "").toLowerCase())
+            : [];
+          const existsInParticipants = lowerParticipants.some((p: string) => 
+            p.includes(lowerOwner) || lowerOwner.includes(p.split(/\s+/)[0])
+          );
+
           const words = lowerOwner.split(/\s+/).filter((w: string) => w.length > 2);
-          const nameFound = words.length > 0 
+          const nameFound = (words.length > 0 
             ? words.some((word: string) => transcript.toLowerCase().includes(word))
-            : transcript.toLowerCase().includes(lowerOwner);
+            : transcript.toLowerCase().includes(lowerOwner)) || existsInParticipants;
             
           if (!nameFound) {
-            console.warn(`[MMP-Resilient] Owner "${owner}" not found verbatim in transcript. Mapping to Unassigned to avoid crash.`);
+            console.warn(`[MMP-Resilient] Owner "${owner}" not found verbatim in transcript or participants. Mapping to Unassigned.`);
             owner = "Unassigned";
           }
         }
@@ -173,12 +190,33 @@ function isVersionOutdated(clientVersion: string, minVersion: string): boolean {
   return (cPatch || 0) < (mPatch || 0);
 }
 
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: getCorsHeaders(request) });
 }
 
 export async function POST(request: NextRequest) {
+  const headers = getCorsHeaders(request);
   try {
+    // 1. Dynamic CORS origin verification
+    const origin = request.headers.get("origin") || "";
+    const isAllowedOrigin = origin.startsWith("chrome-extension://") || origin.includes("localhost") || origin.includes("127.0.0.1") || process.env.NODE_ENV === "development";
+    if (!isAllowedOrigin) {
+      return new NextResponse(JSON.stringify({ error: "Unauthorized request origin." }), { status: 403, headers });
+    }
+
+    // 2. In-Memory Rate Limiting
+    const ip = (request as any).ip || request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
+    const rateResult = rateLimit(ip, 20, 3600000); // 20 requests per hour
+    if (!rateResult.success) {
+      return new NextResponse(JSON.stringify({ error: "Rate limit exceeded. Max 20 summarizations per hour." }), {
+        status: 429,
+        headers: {
+          ...headers,
+          "Retry-After": String(Math.ceil((rateResult.reset - Date.now()) / 1000))
+        }
+      });
+    }
+
     const { chunk = "", version = "1.0.0" } = await request.json();
 
     // Check if the client's extension is outdated
@@ -190,14 +228,14 @@ export async function POST(request: NextRequest) {
           requiredVersion: MINIMUM_REQUIRED_VERSION, 
           currentVersion: version 
         }), 
-        { status: 426, headers: CORS_HEADERS }
+        { status: 426, headers }
       );
     }
 
     const transcriptText = chunk.trim();
 
     if (!transcriptText) {
-      return new NextResponse(JSON.stringify({ error: "Missing transcript data" }), { status: 400, headers: CORS_HEADERS });
+      return new NextResponse(JSON.stringify({ error: "Missing transcript data" }), { status: 400, headers });
     }
 
     // EDGE CASE: Micro-Meeting Fast Path (< 150 characters)
@@ -230,7 +268,7 @@ ${microSummary}
 ## Participants
 Presenter / Tester`;
 
-      return new NextResponse(JSON.stringify({ summary: microSummary, markdown }), { status: 200, headers: CORS_HEADERS });
+      return new NextResponse(JSON.stringify({ summary: microSummary, markdown }), { status: 200, headers });
     }
 
     // Default system prompt used strictly as backup fallback if the multi-stage parsing fails
@@ -312,7 +350,7 @@ You must output a single, valid JSON object with NO extra text, comment, or mark
         validateAndSelfHeal(jsonResult, transcriptText); // Final self-heal
       } catch (err) {
         console.error("[MMP] Gemini fallback response also failed parsing:", err);
-        return new NextResponse(JSON.stringify({ error: "Summarization failed under strict validation constraints." }), { status: 502, headers: CORS_HEADERS });
+        return new NextResponse(JSON.stringify({ error: "Summarization failed under strict validation constraints." }), { status: 502, headers });
       }
     }
 
@@ -370,9 +408,9 @@ ${timelineMarkdown}
 ## Participants
 ${participants.join(", ") || "—"}`;
 
-    return new NextResponse(JSON.stringify({ summary: executiveSummary, markdown }), { status: 200, headers: CORS_HEADERS });
+    return new NextResponse(JSON.stringify({ summary: executiveSummary, markdown }), { status: 200, headers });
   } catch (error: any) {
     console.error("[MMP] Summarize API route error:", error);
-    return new NextResponse(JSON.stringify({ error: error.message }), { status: 500, headers: CORS_HEADERS });
+    return new NextResponse(JSON.stringify({ error: error.message }), { status: 500, headers });
   }
 }

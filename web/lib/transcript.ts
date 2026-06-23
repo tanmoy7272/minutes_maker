@@ -1,8 +1,8 @@
 import { callLLM } from "./llm";
 
-// Standard meetings under ~80,000 characters (~20k tokens) are processed in a high-fidelity multi-stage pipeline.
+// Standard meetings under ~200,000 characters (~50k tokens) are processed in a high-fidelity multi-stage pipeline.
 // Extremely long meetings are chunked progressively with a 2,000-character overlap using a custom merging prompt.
-const SINGLE_PASS_THRESHOLD = 80000;
+const SINGLE_PASS_THRESHOLD = 200000;
 const CHUNK_SIZE = 25000;
 const OVERLAP = 2000;
 
