@@ -97,6 +97,7 @@
     } else if (msg.action === "stopCapture") {
       console.log("[MMP-Offscreen] Received stopCapture instruction.");
       stopRecordingStream();
+      sendResponse({ ok: true });
     } else if (msg.action === "pingOffscreen") {
       sendResponse({ ok: true });
     }

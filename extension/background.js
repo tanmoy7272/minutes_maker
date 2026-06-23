@@ -351,8 +351,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ── Heartbeat Alarm Event Handler ──────────────────────────────────────────
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "offscreenHeartbeat") {
-    chrome.storage.local.get(["capturing", "activeTabId", "tempStreamId"], async (data) => {
+    chrome.storage.local.get(["capturing", "activeTabId", "tempStreamId", "captureStartTime"], async (data) => {
       if (data.capturing) {
+        // Skip check if capture started recently (within 15 seconds) to avoid startup race conditions
+        const elapsed = Date.now() - (data.captureStartTime || 0);
+        if (elapsed < 15000) {
+          console.log("[MMP-Heartbeat] Capture session started recently. Skipping heartbeat check.");
+          return;
+        }
+
         const active = await hasOffscreenDocument();
         if (!active) {
           console.warn("[MMP-Heartbeat] Capturing state is TRUE but offscreen document is missing. Recreating...");
