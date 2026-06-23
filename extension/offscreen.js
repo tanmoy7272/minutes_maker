@@ -8,6 +8,7 @@
   let portalUrl = "https://minutes-maker-five.vercel.app";
 
   let captureInitiated = false;
+  let offlineBlobQueue = [];
 
   const initCaptureFlow = async (streamId) => {
     if (captureInitiated) return;
@@ -89,13 +90,15 @@
   }
 
   // Message listener for direct message-driven transfer (primary)
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "initiateCapture") {
       console.log("[MMP-Offscreen] Received initiateCapture message.");
       initCaptureFlow(msg.streamId);
     } else if (msg.action === "stopCapture") {
       console.log("[MMP-Offscreen] Received stopCapture instruction.");
       stopRecordingStream();
+    } else if (msg.action === "pingOffscreen") {
+      sendResponse({ ok: true });
     }
   });
 
@@ -125,8 +128,14 @@
 
       // Safe size filter: ignore micro-silent recordings (less than 1KB)
       if (audioBlob.size > 1000) {
-        console.log(`[MMP-Offscreen] Slicing segmented blob (${audioBlob.size} bytes). Sending to Whisper...`);
-        sendBlobForTranscription(audioBlob);
+        let targetBlob = audioBlob;
+        if (offlineBlobQueue.length > 0) {
+          console.log(`[MMP-Offscreen] Concatenating ${offlineBlobQueue.length} offline cached slices with current slice.`);
+          targetBlob = new Blob([...offlineBlobQueue, audioBlob], { type: audioBlob.type });
+        }
+
+        console.log(`[MMP-Offscreen] Slicing segmented blob (${targetBlob.size} bytes). Sending to Whisper...`);
+        sendBlobForTranscription(targetBlob, audioBlob); // Pass raw blob to cache if it fails
         sentForTranscription = true;
       }
 
@@ -138,9 +147,15 @@
           console.error("[MMP-Offscreen] Failed to auto-restart recorder:", e);
         }
       } else if (!recordingActive && !sentForTranscription) {
-        // If we are stopping and did not send a chunk, notify background immediately
-        console.log("[MMP-Offscreen] Stop requested and final chunk empty. Triggering cleanup completion.");
-        chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+        // If we are stopping and did not send a chunk, check if we have remaining offline blobs to attempt
+        if (offlineBlobQueue.length > 0) {
+          console.log("[MMP-Offscreen] Stop requested. Attempting final flush of offline queue...");
+          const finalBlob = new Blob(offlineBlobQueue, { type: "audio/webm" });
+          sendBlobForTranscription(finalBlob, finalBlob);
+        } else {
+          console.log("[MMP-Offscreen] Stop requested and final chunk empty. Triggering cleanup completion.");
+          chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+        }
       }
     };
 
@@ -170,13 +185,18 @@
       }
       mediaRecorder = null;
     } else {
-      // If there is no active mediaRecorder, notify background of completion immediately
-      console.log("[MMP-Offscreen] No active media recorder. Triggering cleanup completion.");
-      chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+      if (offlineBlobQueue.length > 0) {
+        console.log("[MMP-Offscreen] Stop requested (no recorder). Flushing offline queue...");
+        const finalBlob = new Blob(offlineBlobQueue, { type: "audio/webm" });
+        sendBlobForTranscription(finalBlob, finalBlob);
+      } else {
+        console.log("[MMP-Offscreen] No active media recorder. Triggering cleanup completion.");
+        chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });
+      }
     }
   };
 
-  const sendBlobForTranscription = async (blob, attempt = 1) => {
+  const sendBlobForTranscription = async (blob, rawSourceBlob, attempt = 1) => {
     const formData = new FormData();
     formData.append("file", blob, "audio.webm");
 
@@ -185,8 +205,17 @@
 
     try {
       const endpoint = `${portalUrl.endsWith("/") ? portalUrl.slice(0, -1) : portalUrl}/api/transcribe`;
+      const dataStorage = await new Promise((resolve) => {
+        chrome.storage.local.get(["customGeminiKey"], resolve);
+      });
+      const headers = {};
+      if (dataStorage && dataStorage.customGeminiKey) {
+        headers["x-custom-gemini-key"] = dataStorage.customGeminiKey;
+      }
+
       const response = await fetch(endpoint, {
         method: "POST",
+        headers,
         body: formData
       });
 
@@ -205,6 +234,9 @@
         });
       }
 
+      // Successful upload - clear queue!
+      offlineBlobQueue = [];
+
       // If this is the final transcription segment and recording has stopped, let background know
       if (!recordingActive) {
         console.log("[MMP-Offscreen] Final transcription segment completed. Triggering cleanup completion.");
@@ -217,10 +249,13 @@
         const delay = baseDelay * Math.pow(2, attempt - 1);
         console.log(`[MMP-Offscreen] Retrying in ${delay}ms...`);
         setTimeout(() => {
-          sendBlobForTranscription(blob, attempt + 1);
+          sendBlobForTranscription(blob, rawSourceBlob, attempt + 1);
         }, delay);
       } else {
-        console.error("[MMP-Offscreen] All transcription retry attempts failed.");
+        console.error("[MMP-Offscreen] All transcription retry attempts failed. Buffering source chunk in offline queue.");
+        if (rawSourceBlob) {
+          offlineBlobQueue.push(rawSourceBlob);
+        }
         // Notify background that cleanup is complete anyway to avoid hangs
         if (!recordingActive) {
           chrome.runtime.sendMessage({ action: "offscreenCleanupComplete" });

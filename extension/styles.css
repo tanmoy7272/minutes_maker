@@ -640,3 +640,225 @@ body {
   opacity: 0;
   transform: translateY(-8px) scale(0.95);
 }
+
+/* ── Settings & History Sub-panels ───────────────────────────────────────── */
+.header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.header-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.header-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sub-panel {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 14, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 16px;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: scale(0.95);
+}
+
+.sub-panel.active-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.panel-header h2 {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+  font-family: sans-serif;
+  letter-spacing: -0.2px;
+}
+
+.panel-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  font-weight: 300;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.panel-close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.panel-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-footer {
+  padding: 14px 16px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setting-group label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #a78bfa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: sans-serif;
+}
+
+.setting-desc {
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  font-family: sans-serif;
+}
+
+.setting-group input {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #ffffff;
+  font-size: 11px;
+  font-family: monospace;
+  transition: all 0.2s ease;
+  margin-top: 4px;
+}
+
+.setting-group input:focus {
+  outline: none;
+  border-color: #8b5cf6;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.15);
+}
+
+.btn-save-settings, .btn-clear-history {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: sans-serif;
+}
+
+.btn-save-settings {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.btn-save-settings:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+}
+
+.btn-clear-history {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.btn-clear-history:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ff6b6b;
+}
+
+.history-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+.history-item-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: sans-serif;
+}
+
+.history-item-date {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: sans-serif;
+}
+
+.panel-body .empty-msg {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: sans-serif;
+  padding: 24px 0;
+  font-style: italic;
+}
+

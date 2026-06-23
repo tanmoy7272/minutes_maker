@@ -160,7 +160,7 @@ Your output must be a single, valid JSON object with NO extra text, comments, or
   ]
 }`;
 
-export async function summarizeTranscript(transcript: string, systemPrompt: string, forceFallback = false): Promise<string> {
+export async function summarizeTranscript(transcript: string, systemPrompt: string, forceFallback = false, customKey?: string): Promise<string> {
   const len = transcript.length;
 
   // ==========================================
@@ -171,7 +171,7 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
 
     // Stage 1: Extraction Pass
     console.log("[MMP-Pipeline] Running Stage 1: Structural Extraction...");
-    const extractionResult = await callLLM(transcript, EXTRACTION_SYSTEM_PROMPT, forceFallback);
+    const extractionResult = await callLLM(transcript, EXTRACTION_SYSTEM_PROMPT, forceFallback, customKey);
     
     let parsedExtraction: any;
     try {
@@ -179,13 +179,13 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
       console.log(`[MMP-Pipeline] Stage 1 succeeded. Extracted ${parsedExtraction.actionItems?.length || 0} tasks and ${parsedExtraction.keyDecisions?.length || 0} decisions.`);
     } catch (e) {
       console.warn("[MMP-Pipeline] Stage 1 failed to return valid JSON, falling back to a raw single pass...");
-      return await callLLM(transcript, systemPrompt, forceFallback);
+      return await callLLM(transcript, systemPrompt, forceFallback, customKey);
     }
 
     // Stage 2: Narrative Synthesis Pass
     console.log("[MMP-Pipeline] Running Stage 2: Narrative Synthesis...");
     const synthesisPrompt = `Original Transcript:\n${transcript}\n\nExtracted Structural Items:\n${JSON.stringify(parsedExtraction, null, 2)}`;
-    const synthesisResult = await callLLM(synthesisPrompt, SYNTHESIS_SYSTEM_PROMPT, forceFallback);
+    const synthesisResult = await callLLM(synthesisPrompt, SYNTHESIS_SYSTEM_PROMPT, forceFallback, customKey);
 
     let parsedSynthesis: any;
     try {
@@ -203,7 +203,7 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
     };
     
     const refinementPrompt = `Original Transcript:\n${transcript}\n\nProposed Meeting Intelligence JSON:\n${JSON.stringify(mergedState, null, 2)}`;
-    const finalResult = await callLLM(refinementPrompt, REFINEMENT_SYSTEM_PROMPT, forceFallback);
+    const finalResult = await callLLM(refinementPrompt, REFINEMENT_SYSTEM_PROMPT, forceFallback, customKey);
 
     try {
       JSON.parse(finalResult);
@@ -244,7 +244,7 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
     console.log(`[MMP] Processing cumulative chunk ${i + 1}/${chunks.length} (Size: ${chunk.length} chars)`);
 
     const userPrompt = `Previous Accumulated JSON State:\n${JSON.stringify(currentAccumulatedState, null, 2)}\n\nNew Transcript Chunk:\n${chunk}`;
-    const mergeResult = await callLLM(userPrompt, MERGE_SYSTEM_PROMPT, forceFallback);
+    const mergeResult = await callLLM(userPrompt, MERGE_SYSTEM_PROMPT, forceFallback, customKey);
 
     try {
       currentAccumulatedState = JSON.parse(mergeResult);
@@ -260,7 +260,7 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
   // Since original transcript is too long to fully pass, we pass the chronological timeline and key points as context for narrative summary
   const contextSummary = `Chronological timeline topics discussed:\n${JSON.stringify(currentAccumulatedState.timeline || [], null, 2)}\n\nKey discussion themes:\n${JSON.stringify(currentAccumulatedState.keyPoints || [], null, 2)}`;
   
-  const synthesisResult = await callLLM(contextSummary, SYNTHESIS_SYSTEM_PROMPT, forceFallback);
+  const synthesisResult = await callLLM(contextSummary, SYNTHESIS_SYSTEM_PROMPT, forceFallback, customKey);
   let parsedSynthesis: any;
   try {
     parsedSynthesis = JSON.parse(synthesisResult);
@@ -275,7 +275,7 @@ export async function summarizeTranscript(transcript: string, systemPrompt: stri
 
   console.log("[MMP-Pipeline] Running Stage 3 (Refinement) on cumulative chunked meeting state...");
   const refinementPrompt = `Cumulative Meeting State:\n${JSON.stringify(mergedState, null, 2)}`;
-  const finalResult = await callLLM(refinementPrompt, REFINEMENT_SYSTEM_PROMPT, forceFallback);
+  const finalResult = await callLLM(refinementPrompt, REFINEMENT_SYSTEM_PROMPT, forceFallback, customKey);
 
   try {
     JSON.parse(finalResult);

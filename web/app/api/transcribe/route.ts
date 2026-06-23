@@ -33,9 +33,9 @@ export async function POST(request: NextRequest) {
 
     // 2. In-Memory Rate Limiting
     const ip = (request as any).ip || request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
-    const rateResult = rateLimit(ip, 20, 3600000); // 20 requests per hour
+    const rateResult = rateLimit(ip, 600, 3600000); // 600 requests per hour
     if (!rateResult.success) {
-      return new NextResponse(JSON.stringify({ error: "Rate limit exceeded. Max 20 transcriptions per hour." }), {
+      return new NextResponse(JSON.stringify({ error: "Rate limit exceeded. Max 600 transcriptions per hour." }), {
         status: 429,
         headers: {
           ...headers,
@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
     }
 
     const groqKeys = getGroqKeys();
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.LLM_FALLBACK_KEY;
+    const customKey = (request.headers.get("x-custom-gemini-key") || "").trim();
+    const geminiKey = customKey || process.env.GEMINI_API_KEY || process.env.LLM_FALLBACK_KEY;
 
     if (groqKeys.length === 0 && !geminiKey) {
       return new NextResponse(JSON.stringify({ error: "No transcription API keys configured in environment pool." }), { status: 500, headers });
@@ -62,8 +63,8 @@ export async function POST(request: NextRequest) {
     let transcriptionSuccess = false;
     let lastErrorMsg = "";
 
-    // 3. Transcription flow: try Groq Whisper first if keys exist
-    if (groqKeys.length > 0) {
+    // 3. Transcription flow: try Groq Whisper first if keys exist, unless custom key is supplied
+    if (groqKeys.length > 0 && !customKey) {
       for (let i = 0; i < groqKeys.length; i++) {
         const key = groqKeys[i];
         console.log(`[MMP-Transcribe] Attempting transcription with Groq Key ${i + 1}/${groqKeys.length}...`);

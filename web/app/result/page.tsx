@@ -39,6 +39,51 @@ export default function ResultPage() {
   const [parsedActionItems, setParsedActionItems] = useState<Array<{ id: number; task: string; owner: string; dueDate: string; evidence: string; completed: boolean }>>([]);
   const [individualCopiedTask, setIndividualCopiedTask] = useState<number | null>(null);
 
+  const [isLegacy, setIsLegacy] = useState(false);
+  const [historyList, setHistoryList] = useState<Array<any>>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  // Load history from localStorage
+  const loadHistory = () => {
+    try {
+      const historyJson = localStorage.getItem("mmp_history") || "[]";
+      setHistoryList(JSON.parse(historyJson));
+    } catch (_) {}
+  };
+
+  const saveToLocalHistory = (markdownText: string, structData?: any) => {
+    try {
+      const titleMatch = markdownText.match(/^#\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : "Meeting Minutes";
+      const historyJson = localStorage.getItem("mmp_history") || "[]";
+      const history: Array<any> = JSON.parse(historyJson);
+      
+      const isDuplicate = history.some(item => item.markdown === markdownText);
+      if (isDuplicate) return;
+      
+      const newItem = {
+        id: String(Date.now()),
+        title,
+        date: new Date().toLocaleDateString("en-US", {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        markdown: markdownText,
+        structuredData: structData
+      };
+      
+      history.unshift(newItem);
+      if (history.length > 10) history.pop();
+      localStorage.setItem("mmp_history", JSON.stringify(history));
+      setHistoryList(history);
+    } catch (e) {
+      console.error("Failed to save to local history:", e);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     setMeetingDate(new Date().toLocaleDateString("en-US", {
@@ -47,6 +92,7 @@ export default function ResultPage() {
       month: 'long',
       day: 'numeric'
     }));
+    loadHistory();
 
     if (typeof window !== "undefined") {
       const handleHashChange = () => {
@@ -57,12 +103,41 @@ export default function ResultPage() {
             const binary = atob(encoded);
             const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
             const decoded = new TextDecoder().decode(bytes);
-            setMarkdown(decoded);
 
-            // Infer title from first line if it's a h1 header
-            const titleMatch = decoded.match(/^#\s+(.+)$/m);
-            if (titleMatch && titleMatch[1]) {
-              setMeetingTitle(titleMatch[1].trim());
+            let parsedData;
+            try {
+              parsedData = JSON.parse(decoded);
+            } catch (_) {
+              // Legacy raw markdown
+            }
+
+            if (parsedData && parsedData.markdown && parsedData.structuredData) {
+              setIsLegacy(false);
+              setMarkdown(parsedData.markdown);
+              setParsedDecisions(parsedData.structuredData.keyDecisions || []);
+              setParsedActionItems((parsedData.structuredData.actionItems || []).map((item: any, idx: number) => ({
+                id: idx + 1,
+                task: item.task,
+                owner: item.owner || "Unassigned",
+                dueDate: item.dueDate || "Not mentioned",
+                evidence: item.evidence || "Assigned during meeting discussion.",
+                completed: false
+              })));
+              
+              const titleMatch = parsedData.markdown.match(/^#\s+(.+)$/m);
+              if (titleMatch && titleMatch[1]) {
+                setMeetingTitle(titleMatch[1].trim());
+              }
+              
+              saveToLocalHistory(parsedData.markdown, parsedData.structuredData);
+            } else {
+              setIsLegacy(true);
+              setMarkdown(decoded);
+              
+              const titleMatch = decoded.match(/^#\s+(.+)$/m);
+              if (titleMatch && titleMatch[1]) {
+                setMeetingTitle(titleMatch[1].trim());
+              }
             }
 
             // Confetti blast!
@@ -90,7 +165,7 @@ export default function ResultPage() {
 
   // On-the-fly parser converting markdown string back to interactive JSON data structures
   useEffect(() => {
-    if (!markdown) return;
+    if (!markdown || !isLegacy) return;
 
     try {
       // 1. Parse Decisions
@@ -149,10 +224,11 @@ export default function ResultPage() {
         });
       }
       setParsedActionItems(actions);
+      saveToLocalHistory(markdown, { keyDecisions: decs, actionItems: actions });
     } catch (err) {
       console.error("[MMP] Board parsing failed:", err);
     }
-  }, [markdown]);
+  }, [markdown, isLegacy]);
 
   const handleCopy = () => {
     if (!markdown) return;
@@ -639,7 +715,7 @@ export default function ResultPage() {
   return (
     <div className="min-h-screen py-10 px-4 sm:px-6 lg:px-8">
       {/* Back button */}
-      <div className="mx-auto max-w-3xl mb-6 no-print">
+      <div className="mx-auto max-w-3xl mb-6 flex items-center justify-between no-print">
         <Link 
           href="/" 
           className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
@@ -647,6 +723,13 @@ export default function ResultPage() {
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to Home
         </Link>
+        <button
+          onClick={() => { loadHistory(); setIsHistoryOpen(true); }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+        >
+          <Clock className="h-3.5 w-3.5 text-purple-400" />
+          Meeting History
+        </button>
       </div>
 
       <main className="mx-auto max-w-3xl rounded-2xl border border-white/10 bg-slate-950/40 p-6 sm:p-8 shadow-2xl backdrop-blur-md print-card">
@@ -790,6 +873,109 @@ export default function ResultPage() {
           )}
         </div>
       </main>
+
+      {/* Floating History Drawer */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade-in no-print">
+          <div className="w-full max-w-md h-full bg-slate-950/95 border-l border-white/10 p-6 shadow-2xl flex flex-col justify-between overflow-y-auto animate-slide-in">
+            <div>
+              <div className="flex items-center justify-between border-b border-white/[0.08] pb-4 mb-6">
+                <h3 className="text-sm font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Meeting History
+                </h3>
+                <button
+                  onClick={() => setIsHistoryOpen(false)}
+                  className="rounded-lg p-1.5 hover:bg-white/5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="h-4 w-4 rotate-180" />
+                </button>
+              </div>
+
+              {historyList.length === 0 ? (
+                <div className="text-center text-slate-500 py-12 text-xs italic">
+                  No local meeting history found. Summarize a meeting to start!
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {historyList.map((item) => (
+                    <div 
+                      key={item.id} 
+                      className="group rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] p-4 transition-all hover:border-purple-500/30 cursor-pointer"
+                      onClick={() => {
+                        setMarkdown(item.markdown);
+                        if (item.structuredData) {
+                          setIsLegacy(false);
+                          setParsedDecisions(item.structuredData.keyDecisions || []);
+                          setParsedActionItems((item.structuredData.actionItems || []).map((action: any, idx: number) => ({
+                            id: idx + 1,
+                            task: action.task,
+                            owner: action.owner || "Unassigned",
+                            dueDate: action.dueDate || "Not mentioned",
+                            evidence: action.evidence || "Assigned during meeting discussion.",
+                            completed: false
+                          })));
+                        } else {
+                          setIsLegacy(true);
+                        }
+                        const titleMatch = item.markdown.match(/^#\s+(.+)$/m);
+                        if (titleMatch && titleMatch[1]) {
+                          setMeetingTitle(titleMatch[1].trim());
+                        }
+                        setIsHistoryOpen(false);
+                        // Update hash silently
+                        try {
+                          const bytes = new TextEncoder().encode(JSON.stringify({ markdown: item.markdown, structuredData: item.structuredData }));
+                          let binary = "";
+                          for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                          }
+                          window.location.hash = btoa(binary);
+                        } catch (_) {}
+                      }}
+                    >
+                      <h4 className="font-bold text-xs text-white truncate pr-6 group-hover:text-purple-300 transition-colors">
+                        {item.title}
+                      </h4>
+                      <p className="text-[10px] text-slate-500 mt-1">{item.date}</p>
+                      
+                      {/* Sub-badges for items count */}
+                      {item.structuredData && (
+                        <div className="flex gap-2 mt-3 text-[9px] font-bold text-slate-400">
+                          {item.structuredData.keyDecisions?.length > 0 && (
+                            <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/10">
+                              {item.structuredData.keyDecisions.length} Decisions
+                            </span>
+                          )}
+                          {item.structuredData.actionItems?.length > 0 && (
+                            <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full border border-blue-500/10">
+                              {item.structuredData.actionItems.length} Action Items
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-6 border-t border-white/[0.08] mt-6">
+              <button
+                onClick={() => {
+                  if (confirm("Are you sure you want to clear all meeting history from this browser?")) {
+                    localStorage.removeItem("mmp_history");
+                    setHistoryList([]);
+                  }
+                }}
+                className="w-full text-center text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase py-2 tracking-widest cursor-pointer"
+              >
+                Clear History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

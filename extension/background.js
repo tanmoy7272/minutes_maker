@@ -20,13 +20,17 @@ chrome.runtime.onInstalled.addListener((details) => {
     activeTabId: null
   });
 
-
+  chrome.alarms.create("offscreenHeartbeat", { periodInMinutes: 1 });
 
   if (details.reason === "install") {
     chrome.tabs.create({ url: PORTAL_URL });
   }
 
   console.log(`[Meet Minutes Pro] Whisper Audio Capture installed v1.2.0`);
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create("offscreenHeartbeat", { periodInMinutes: 1 });
 });
 
 // Helper to check if offscreen document is active with backward compatibility support
@@ -122,9 +126,17 @@ const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) =>
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 60000); // 60s timeout
   try {
+    const dataStorage = await new Promise((resolve) => {
+      chrome.storage.local.get(["customGeminiKey"], resolve);
+    });
+    const headers = { "Content-Type": "application/json" };
+    if (dataStorage && dataStorage.customGeminiKey) {
+      headers["x-custom-gemini-key"] = dataStorage.customGeminiKey;
+    }
+
     const res = await fetch(`${PORTAL_URL}api/summarize`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         previousSummary: prevSummary,
         chunk: transcriptText,
@@ -140,7 +152,7 @@ const callSummarizeAPI = async (prevSummary, transcriptText, isRetry = false) =>
 
     if (!res.ok) throw new Error("Server rejected request");
     const data = await res.json();
-    return data.markdown || "";
+    return data;
   } catch (e) {
     clearTimeout(t);
     if (e.message === "Update required") throw e;
@@ -175,19 +187,20 @@ const appendToTranscript = (cleanText) => {
 
 // ── Coordinated Shutdown & Finalization Handlers ─────────────────────────────
 const finalizeStopAndResponse = () => {
-  chrome.storage.local.get(["transcript"], (data) => {
+  chrome.storage.local.get(["transcript", "isAutoStopping"], (data) => {
     const fullText = (data.transcript || []).join("\n");
-    const isAuto = isAutoStopping;
+    const isAuto = !!data.isAutoStopping;
 
     cleanupActiveSession();
-    isAutoStopping = false;
+    chrome.storage.local.set({ isAutoStopping: false });
 
     if (isAuto) {
       if (fullText.trim().length > 0) {
         console.log("[Meet Minutes Pro] Auto-summarizing final transcript of length:", fullText.length);
         callSummarizeAPI("", fullText)
-          .then((markdown) => {
-            const bytes = new TextEncoder().encode(markdown);
+          .then((summaryRes) => {
+            const payload = JSON.stringify({ markdown: summaryRes.markdown, structuredData: summaryRes.structuredData });
+            const bytes = new TextEncoder().encode(payload);
             let binary = "";
             for (let i = 0; i < bytes.length; i++) {
               binary += String.fromCharCode(bytes[i]);
@@ -311,9 +324,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!data.capturing) return; // Already manually stopped or not capturing
 
       console.log("[Meet Minutes Pro] Supervisor detected hangup. Initiating auto-stop...");
-      isAutoStopping = true;
-      pendingStopResponse = null;
-      triggerStopFlow();
+      chrome.storage.local.set({ isAutoStopping: true }, () => {
+        pendingStopResponse = null;
+        triggerStopFlow();
+      });
     });
   } else if (msg.action === "offscreenCleanupComplete") {
     console.log("[Meet Minutes Pro] Offscreen cleanup completed. Waiting for writing queue to drain...");
@@ -330,6 +344,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             resolveQueue();
           });
       });
+    });
+  }
+});
+
+// ── Heartbeat Alarm Event Handler ──────────────────────────────────────────
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "offscreenHeartbeat") {
+    chrome.storage.local.get(["capturing", "activeTabId", "tempStreamId"], async (data) => {
+      if (data.capturing) {
+        const active = await hasOffscreenDocument();
+        if (!active) {
+          console.warn("[MMP-Heartbeat] Capturing state is TRUE but offscreen document is missing. Recreating...");
+          try {
+            await startAudioCapture(data.activeTabId);
+            if (data.tempStreamId) {
+              setTimeout(() => {
+                chrome.runtime.sendMessage({ action: "initiateCapture", streamId: data.tempStreamId });
+              }, 1000);
+            }
+          } catch (err) {
+            console.error("[MMP-Heartbeat] Crash recovery failed:", err);
+          }
+        } else {
+          try {
+            chrome.runtime.sendMessage({ action: "pingOffscreen" }, (res) => {
+              if (chrome.runtime.lastError || !res || !res.ok) {
+                console.warn("[MMP-Heartbeat] Offscreen failed to respond. Recreating stream...");
+                stopAudioCapture().then(() => {
+                  startAudioCapture(data.activeTabId).then(() => {
+                    if (data.tempStreamId) {
+                      chrome.runtime.sendMessage({ action: "initiateCapture", streamId: data.tempStreamId });
+                    }
+                  });
+                });
+              }
+            });
+          } catch (_) {}
+        }
+      }
     });
   }
 });

@@ -204,9 +204,13 @@ export async function POST(request: NextRequest) {
       return new NextResponse(JSON.stringify({ error: "Unauthorized request origin." }), { status: 403, headers });
     }
 
-    // 2. In-Memory Rate Limiting
+    // Retrieve custom Gemini key from headers (bypasses rate limits and shared key pool)
+    const customKey = (request.headers.get("x-custom-gemini-key") || "").trim();
+
+    // 2. In-Memory Rate Limiting (bypassed if custom key is supplied)
     const ip = (request as any).ip || request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
-    const rateResult = rateLimit(ip, 20, 3600000); // 20 requests per hour
+    const limitLimit = customKey ? 1000 : 20; // Allow higher limits for custom keys
+    const rateResult = rateLimit(ip, limitLimit, 3600000); // 20 requests per hour
     if (!rateResult.success) {
       return new NextResponse(JSON.stringify({ error: "Rate limit exceeded. Max 20 summarizations per hour." }), {
         status: 429,
@@ -238,9 +242,9 @@ export async function POST(request: NextRequest) {
       return new NextResponse(JSON.stringify({ error: "Missing transcript data" }), { status: 400, headers });
     }
 
-    // EDGE CASE: Micro-Meeting Fast Path (< 150 characters)
+    // EDGE CASE: Micro-Meeting Fast Path (< 500 characters)
     // Avoids costly API call and hallucinations for brief tests or microphone connectivity checks.
-    if (transcriptText.length < 150) {
+    if (transcriptText.length < 500) {
       console.log(`[MMP-FastPath] Micro-meeting detected (${transcriptText.length} chars). Executing quick response.`);
       const microSummary = "This was an extremely brief session, likely representing a short connectivity check or test call. No formal discussions or actionable topics were recorded.";
       const markdown = `# Meeting Minutes
@@ -256,7 +260,7 @@ ${microSummary}
   *Evidence: "Captured a brief connectivity test."*
 
 ## Key Points
-- The captured audio stream was extremely brief (under 150 characters).
+- The captured audio stream was extremely brief (under 500 characters).
 - Verified tab audio mixing and local microphone loopback interface correctly.
 
 ## Risks & Roadblocks
@@ -268,7 +272,46 @@ ${microSummary}
 ## Participants
 Presenter / Tester`;
 
-      return new NextResponse(JSON.stringify({ summary: microSummary, markdown }), { status: 200, headers });
+      const microStructuredData = {
+        executiveSummary: microSummary,
+        keyDecisions: [
+          {
+            decision: "Completed microphone check",
+            rationale: "Verified audio capturing capability.",
+            timestamp: ""
+          }
+        ],
+        actionItems: [
+          {
+            task: "Confirm platform is ready for next session",
+            owner: "Presenter",
+            dueDate: "Immediate",
+            evidence: "Captured a brief connectivity test."
+          }
+        ],
+        keyPoints: [
+          "The captured audio stream was extremely brief (under 500 characters).",
+          "Verified tab audio mixing and local microphone loopback interface correctly."
+        ],
+        openQuestions: [],
+        participants: ["Presenter / Tester"],
+        risks: [
+          {
+            risk: "System Connectivity Check",
+            mitigation: "Verify network and Chrome extension installation.",
+            impact: "Low"
+          }
+        ],
+        timeline: [
+          {
+            timestamp: "00:00:00",
+            topic: "Microphone Test",
+            description: "Verified audio capturing capability."
+          }
+        ]
+      };
+
+      return new NextResponse(JSON.stringify({ summary: microSummary, markdown, structuredData: microStructuredData }), { status: 200, headers });
     }
 
     // Default system prompt used strictly as backup fallback if the multi-stage parsing fails
@@ -318,7 +361,7 @@ You must output a single, valid JSON object with NO extra text, comment, or mark
 }`;
 
     console.log("[MMP] Attempting summarization with high-fidelity multi-stage intelligence pipeline...");
-    let resultText = await summarizeTranscript(transcriptText, BACKUP_SYSTEM_PROMPT, false);
+    let resultText = await summarizeTranscript(transcriptText, BACKUP_SYSTEM_PROMPT, false, customKey);
     
     let jsonResult: SummarizeResult = {
       executiveSummary: "",
@@ -343,7 +386,7 @@ You must output a single, valid JSON object with NO extra text, comment, or mark
     // Retry once with Gemini fallback if validation fails or parsing fails
     if (!isValid) {
       console.warn("[MMP] Primary validation failed or returned malformed JSON. Retrying with Gemini fallback...");
-      resultText = await summarizeTranscript(transcriptText, BACKUP_SYSTEM_PROMPT, true); // forceFallback = true
+      resultText = await summarizeTranscript(transcriptText, BACKUP_SYSTEM_PROMPT, true, customKey); // forceFallback = true
       
       try {
         jsonResult = JSON.parse(resultText);
@@ -408,7 +451,7 @@ ${timelineMarkdown}
 ## Participants
 ${participants.join(", ") || "—"}`;
 
-    return new NextResponse(JSON.stringify({ summary: executiveSummary, markdown }), { status: 200, headers });
+    return new NextResponse(JSON.stringify({ summary: executiveSummary, markdown, structuredData: jsonResult }), { status: 200, headers });
   } catch (error: any) {
     console.error("[MMP] Summarize API route error:", error);
     return new NextResponse(JSON.stringify({ error: error.message }), { status: 500, headers });

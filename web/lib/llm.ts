@@ -19,17 +19,17 @@ export const getGroqKeys = (): string[] => {
   return Array.from(new Set(keys));
 };
 
-export async function callLLM(prompt: string, system: string, forceFallback = false): Promise<string> {
+export async function callLLM(prompt: string, system: string, forceFallback = false, customKey?: string): Promise<string> {
   const groqKeys = getGroqKeys();
   const hasGroqKeys = groqKeys.length > 0;
 
-  // Check if we should directly force Gemini fallback
-  const startIdx = (forceFallback || !hasGroqKeys) ? 1 : 0;
+  // Check if we should directly force Gemini fallback (or if a custom key was supplied)
+  const startIdx = (forceFallback || !hasGroqKeys || !!customKey) ? 1 : 0;
 
   if (startIdx === 1) {
     const model = process.env.LLM_FALLBACK_MODEL || "gemini-2.5-flash";
-    console.log(`[MMP] Force Gemini fallback or no Groq keys configured. Using ${model}...`);
-    return callGemini(prompt, system);
+    console.log(`[MMP] Force Gemini fallback, no Groq keys, or custom key configured. Using ${model}...`);
+    return callGemini(prompt, system, customKey);
   }
 
   // Try Groq Keys Sequentially
@@ -90,8 +90,8 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
   return callGemini(prompt, system);
 }
 
-async function callGemini(prompt: string, system: string): Promise<string> {
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.LLM_FALLBACK_KEY;
+async function callGemini(prompt: string, system: string, customKey?: string): Promise<string> {
+  const geminiKey = customKey || process.env.GEMINI_API_KEY || process.env.LLM_FALLBACK_KEY;
   if (!geminiKey) {
     console.warn("[MMP-LLM] Gemini API key (GEMINI_API_KEY or LLM_FALLBACK_KEY) is not defined. Attempting Groq llama-3.3-70b-versatile as final self-healing fallback...");
     const groqKeys = getGroqKeys();

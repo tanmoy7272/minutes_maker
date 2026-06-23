@@ -5,6 +5,11 @@
   const $ = (id) => document.getElementById(id);
   const $timer = $("timer"), $lineCount = $("lineCount"), $captionState = $("captionState");
   const $start = $("start"), $stop = $("stop"), $clear = $("clear"), $overlay = $("summarizeOverlay"), $visualizer = $("visualizer");
+  
+  const $settingsPanel = $("settingsPanel"), $closeSettings = $("closeSettings"), $toggleSettings = $("toggleSettings");
+  const $customKeyInput = $("customKeyInput"), $saveSettingsBtn = $("saveSettingsBtn");
+  const $historyPanel = $("historyPanel"), $closeHistory = $("closeHistory"), $toggleHistory = $("toggleHistory");
+  const $historyListContainer = $("historyListContainer"), $clearAllHistory = $("clearAllHistory");
 
   let timerInterval = null, timerStart = null;
 
@@ -43,7 +48,7 @@
         throw new Error(launchRes?.error || "Failed to launch offscreen context.");
       }
 
-      // Check microphone permission before proceeding to prevent silent capturing failures (Issue 3)
+      // Check microphone permission (optional)
       let hasMicPermission = false;
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -51,9 +56,8 @@
       } catch (_) {}
 
       if (!hasMicPermission) {
-        console.log("[MMP-Popup] Microphone permission missing. Launching onboarding permission tab...");
-        chrome.tabs.create({ url: "permission.html" });
-        return;
+        console.log("[MMP-Popup] Microphone permission missing. Tab-only audio capture initiated.");
+        showToast("Microphone disabled (Tab Audio Only)", "info");
       }
 
       console.log(`[MMP-Popup] 3. Querying tab capture stream ID for tab ID: ${tab.id}`);
@@ -116,8 +120,11 @@
         throw new Error("No transcription was recorded during the call.");
       }
 
-      const markdown = await callSummarizeAPI(data.summary, data.transcript);
-      const bytes = new TextEncoder().encode(markdown);
+      const summaryRes = await callSummarizeAPI(data.summary, data.transcript);
+      saveToExtensionHistory(summaryRes.markdown);
+
+      const payload = JSON.stringify({ markdown: summaryRes.markdown, structuredData: summaryRes.structuredData });
+      const bytes = new TextEncoder().encode(payload);
       let binary = "";
       for (let i = 0; i < bytes.length; i++) {
         binary += String.fromCharCode(bytes[i]);
@@ -145,9 +152,17 @@
     try {
       console.log("[MMP-Popup] Sending transcripts to summarize API...");
       const currentVersion = chrome.runtime.getManifest().version;
+      const dataStorage = await new Promise((resolve) => {
+        chrome.storage.local.get(["customGeminiKey"], resolve);
+      });
+      const headers = { "Content-Type": "application/json" };
+      if (dataStorage && dataStorage.customGeminiKey) {
+        headers["x-custom-gemini-key"] = dataStorage.customGeminiKey;
+      }
+
       const res = await fetch(`${PORTAL_URL}/api/summarize`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ 
           previousSummary: prevSummary, 
           chunk: transcript,
@@ -173,13 +188,126 @@
 
       if (!res.ok) throw new Error("Server rejected request");
       const data = await res.json();
-      return data.markdown || "";
+      return data;
     } catch (e) {
       clearTimeout(t);
       if (e.message === "Update required to continue" || e.message.includes("Rate limit") || e.message.includes("Unauthorized")) throw e;
       if (!isRetry) return callSummarizeAPI(prevSummary, transcript, true); // Retry once
       showToast("Offline - will sync later", "error");
       throw e;
+    }
+  };
+
+  // ── Settings Sub-Panel Functionality ─────────────────────────────────────
+  chrome.storage.local.get(["customGeminiKey"], (data) => {
+    if (data.customGeminiKey) {
+      $customKeyInput.value = data.customGeminiKey;
+    }
+  });
+
+  $toggleSettings.onclick = () => {
+    $settingsPanel.classList.add("active-panel");
+  };
+
+  $closeSettings.onclick = () => {
+    $settingsPanel.classList.remove("active-panel");
+  };
+
+  $saveSettingsBtn.onclick = () => {
+    const key = $customKeyInput.value.trim();
+    chrome.storage.local.set({ customGeminiKey: key }, () => {
+      showToast("Settings saved successfully", "success");
+      $settingsPanel.classList.remove("active-panel");
+    });
+  };
+
+  // ── History Sub-Panel Functionality ──────────────────────────────────────
+  const saveToExtensionHistory = (markdownText) => {
+    const titleMatch = markdownText.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : "Meeting Minutes";
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    chrome.storage.local.get(["extension_history"], (data) => {
+      const history = data.extension_history || [];
+      const isDuplicate = history.some(h => h.markdown === markdownText);
+      if (isDuplicate) return;
+      
+      const newItem = {
+        id: String(Date.now()),
+        title,
+        date: dateStr,
+        markdown: markdownText
+      };
+      history.unshift(newItem);
+      if (history.length > 10) history.pop();
+      chrome.storage.local.set({ extension_history: history });
+    });
+  };
+
+  const renderHistoryList = () => {
+    chrome.storage.local.get(["extension_history"], (data) => {
+      const history = data.extension_history || [];
+      $historyListContainer.innerHTML = "";
+      
+      if (history.length === 0) {
+        $historyListContainer.innerHTML = '<p class="empty-msg">No local history saved.</p>';
+        return;
+      }
+      
+      history.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        div.onclick = () => {
+          try {
+            const bytes = new TextEncoder().encode(item.markdown);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const encoded = btoa(binary);
+            chrome.tabs.create({ url: `${PORTAL_URL}/result#${encoded}` });
+            $historyPanel.classList.remove("active-panel");
+          } catch (err) {
+            showToast("Failed to open history item", "error");
+          }
+        };
+        
+        const titleH4 = document.createElement("h4");
+        titleH4.className = "history-item-title";
+        titleH4.innerText = item.title;
+        
+        const dateP = document.createElement("p");
+        dateP.className = "history-item-date";
+        dateP.innerText = item.date;
+        
+        div.appendChild(titleH4);
+        div.appendChild(dateP);
+        $historyListContainer.appendChild(div);
+      });
+    });
+  };
+
+  $toggleHistory.onclick = () => {
+    renderHistoryList();
+    $historyPanel.classList.add("active-panel");
+  };
+
+  $closeHistory.onclick = () => {
+    $historyPanel.classList.remove("active-panel");
+  };
+
+  $clearAllHistory.onclick = () => {
+    if (confirm("Delete all local meeting history?")) {
+      chrome.storage.local.set({ extension_history: [] }, () => {
+        showToast("History cleared", "success");
+        renderHistoryList();
+      });
     }
   };
 

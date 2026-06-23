@@ -23,8 +23,14 @@
           <span class="logo-badge">v1.2</span>
         </div>
       </div>
-      <!-- Blinking Status Dot -->
-      <div class="header-status-container">
+      <!-- Header Action Buttons -->
+      <div class="header-status-container" style="display: flex; align-items: center; gap: 8px;">
+        <button id="toggleHistory" class="header-btn" title="View History">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        </button>
+        <button id="toggleSettings" class="header-btn" title="Settings">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
         <div id="statusDot" class="status-dot idle-dot"></div>
       </div>
     </header>
@@ -125,6 +131,38 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="footer-arrow"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
       </a>
     </footer>
+
+    <!-- ── History Panel Overlay ──────────────────────────────────────── -->
+    <div class="sub-panel" id="historyPanel">
+      <div class="panel-header">
+        <h2>Meeting History</h2>
+        <button class="panel-close" id="closeHistory">&times;</button>
+      </div>
+      <div class="panel-body" id="historyListContainer">
+        <p class="empty-msg">No local history saved.</p>
+      </div>
+      <div class="panel-footer">
+        <button class="btn-clear-history" id="clearAllHistory">Clear All History</button>
+      </div>
+    </div>
+
+    <!-- ── Settings Panel Overlay ──────────────────────────────────────── -->
+    <div class="sub-panel" id="settingsPanel">
+      <div class="panel-header">
+        <h2>Settings</h2>
+        <button class="panel-close" id="closeSettings">&times;</button>
+      </div>
+      <div class="panel-body">
+        <div class="setting-group">
+          <label for="customKeyInput">Custom Gemini API Key</label>
+          <span class="setting-desc">Self-fund your AI requests. Bypasses shared pool limits. Stored locally.</span>
+          <input type="password" id="customKeyInput" placeholder="AIzaSy..." />
+        </div>
+      </div>
+      <div class="panel-footer">
+        <button class="btn-save-settings" id="saveSettingsBtn">Save Changes</button>
+      </div>
+    </div>
 
     <!-- ── Toast System ────────────────────────────────────────────────────── -->
     <div class="toast-container" id="toastContainer"></div>
