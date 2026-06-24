@@ -27,7 +27,7 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
   const startIdx = (forceFallback || !hasGroqKeys || !!customKey) ? 1 : 0;
 
   if (startIdx === 1) {
-    const model = process.env.LLM_FALLBACK_MODEL || "gemini-2.5-flash";
+    const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
     console.log(`[MMP] Force Gemini fallback, no Groq keys, or custom key configured. Using ${model}...`);
     return callGemini(prompt, system, customKey);
   }
@@ -85,7 +85,7 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
   }
 
   // If all Groq keys failed, fall back to Gemini
-  const model = process.env.LLM_FALLBACK_MODEL || "gemini-2.5-flash";
+  const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
   console.warn(`[MMP] All Groq API keys failed. Falling back to ${model}...`);
   return callGemini(prompt, system);
 }
@@ -101,7 +101,7 @@ async function callGemini(prompt: string, system: string, customKey?: string): P
     return callGroqFallback(prompt, system, groqKeys[0]);
   }
 
-  const model = process.env.LLM_FALLBACK_MODEL || "gemini-2.5-flash";
+  const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout

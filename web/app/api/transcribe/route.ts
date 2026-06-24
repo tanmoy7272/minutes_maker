@@ -13,7 +13,7 @@ function getCorsHeaders(request: NextRequest) {
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS, HEAD",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-custom-gemini-key",
   };
 }
 
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
         const arrayBuffer = await file.arrayBuffer();
         const base64Data = Buffer.from(arrayBuffer).toString("base64");
         const mimeType = file.type || "audio/webm";
-        const model = process.env.LLM_FALLBACK_MODEL || "gemini-2.5-flash";
+        const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
 
         const controller = new AbortController();

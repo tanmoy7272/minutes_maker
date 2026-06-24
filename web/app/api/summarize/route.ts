@@ -13,7 +13,7 @@ function getCorsHeaders(request: NextRequest) {
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "POST, OPTIONS, HEAD",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-custom-gemini-key",
   };
 }
 
