@@ -322,12 +322,17 @@
   };
 
   const syncStateWithServiceWorker = () => {
-    chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {
+    chrome.storage.local.get(["capturing", "transcript", "captureStartTime", "lastError"], (data) => {
       if (chrome.runtime.lastError) {
         console.error("[MMP-Popup-Sync] Direct storage retrieval failed:", chrome.runtime.lastError.message);
         return;
       }
       console.log("[MMP-Popup-Sync] Direct local storage state retrieved successfully:", data);
+      
+      if (data.lastError) {
+        showToast(data.lastError, "error");
+        chrome.storage.local.set({ lastError: null });
+      }
       
       const isCap = !!data.capturing;
       const lines = data.transcript ? data.transcript.length : 0;

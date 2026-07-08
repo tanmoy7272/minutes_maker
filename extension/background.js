@@ -428,6 +428,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
   } else if (msg.action === "transcriptionFailed") {
     chrome.storage.local.set({ lastError: msg.error });
+  } else if (msg.action === "captureError") {
+    console.error("[Meet Minutes Pro] Capture error from offscreen:", msg.error);
+    chrome.storage.local.set({ lastError: `Capture failed: ${msg.error}` });
+    cleanupActiveSession();
   }
 });
 

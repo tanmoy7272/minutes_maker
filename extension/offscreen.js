@@ -21,10 +21,8 @@
       // 1. Capture the exact tab audio stream using standard mediaDevices token
       const tabStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          mandatory: {
-            chromeMediaSource: "tab",
-            chromeMediaSourceId: streamId
-          }
+          chromeMediaSource: "tab",
+          chromeMediaSourceId: streamId
         },
         video: false
       });
