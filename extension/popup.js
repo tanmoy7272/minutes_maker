@@ -56,8 +56,9 @@
       } catch (_) {}
 
       if (!hasMicPermission) {
-        console.log("[MMP-Popup] Microphone permission missing. Tab-only audio capture initiated.");
-        showToast("Microphone disabled (Tab Audio Only)", "info");
+        console.log("[MMP-Popup] Microphone permission missing. Launching permission helper tab...");
+        showToast("Opening microphone configuration helper...", "info");
+        chrome.tabs.create({ url: chrome.runtime.getURL("permission.html") });
       }
 
       console.log(`[MMP-Popup] 3. Querying tab capture stream ID for tab ID: ${tab.id}`);
@@ -114,25 +115,8 @@
     clearInterval(timerInterval);
     $overlay.classList.add("active-overlay");
     try {
-      const data = await chrome.runtime.sendMessage({ action: "stop" });
-      
-      if (!data || !data.transcript || data.transcript.trim().length === 0) {
-        throw new Error("No transcription was recorded during the call.");
-      }
-
-      const summaryRes = await callSummarizeAPI(data.summary, data.transcript);
-      saveToExtensionHistory(summaryRes.markdown);
-
-      const payload = JSON.stringify({ markdown: summaryRes.markdown, structuredData: summaryRes.structuredData });
-      const bytes = new TextEncoder().encode(payload);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      const encoded = btoa(binary);
-      chrome.tabs.create({ url: `${PORTAL_URL}/result#${encoded}` });
-      showToast("Minutes compiled", "success");
-      resetUI();
+      await chrome.runtime.sendMessage({ action: "stop" });
+      showToast("Compiling summary in background...", "info");
     } catch (e) {
       showToast(e.message || "Summarize failed", "error");
       resetUI();
@@ -392,10 +376,20 @@
     });
   };
 
-  // Whisper Segment Transcribed Message Listener
+  // Message Listener
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.event === "captionsDetected") {
       syncStateWithServiceWorker();
+    } else if (msg.event === "compilationStarted") {
+      $overlay.classList.add("active-overlay");
+    } else if (msg.event === "compilationCompleted") {
+      $overlay.classList.remove("active-overlay");
+      if (msg.success) {
+        showToast("Minutes compiled successfully!", "success");
+      } else {
+        showToast(msg.error || "Compilation failed", "error");
+      }
+      resetUI();
     }
   });
 

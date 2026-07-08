@@ -11,6 +11,7 @@ const OVERLAP = 2000;
 // ==========================================
 
 const EXTRACTION_SYSTEM_PROMPT = `You are a world-class meeting intelligence analyst. Your goal is to conduct a highly precise, exhaustive information extraction pass over the provided meeting transcript.
+The transcript may contain code-switched Hindi, Bengali, Hinglish, Benglish, or text in Devanagari/Bengali scripts. You MUST translate all non-English discussions into clear, professional, and grammatically correct English for the final meeting minutes.
 Focus exclusively on raw facts, explicit statements, assignments, and commitments. Do not summarize or paraphrase.
 
 Your output must be a single, valid JSON object with NO extra text, comments, or markdown formatting blocks. The JSON must adhere strictly to this schema:
@@ -56,6 +57,7 @@ Your output must be a single, valid JSON object with NO extra text, comments, or
 }`;
 
 const SYNTHESIS_SYSTEM_PROMPT = `You are a world-class meeting intelligence writer. Your task is to write a highly professional, comprehensive, and engaging 2-3 paragraph executive summary of the meeting.
+If parts of the transcript are in Hindi, Bengali, Hinglish, or Benglish, translate them and write the entire executive summary in clear, professional English.
 You must use both the raw transcript and the provided structured facts (decisions, action items, participants, risks, timeline) to construct a cohesive, narrative report.
 Highlight the primary agenda, major technical debates, main arguments, and key strategic outcomes. Avoid generic filler.
 
@@ -110,6 +112,7 @@ Your output must be the final, complete, and polished JSON object representing t
 }`;
 
 const MERGE_SYSTEM_PROMPT = `You are a world-class meeting intelligence analyst. Your goal is to progressively extract and merge meeting information from a new transcript chunk into an existing accumulated JSON meeting state.
+The new transcript chunk may contain discussions in Hindi, Bengali, Hinglish, or Benglish. You MUST translate all non-English discussions into clear, professional, and grammatically correct English before merging them into the state.
 
 Analyze the new transcript chunk, identify any new participants, decisions, action items, key points, open questions, risks, or timeline topics, and merge them cleanly with the previous state.
 Follow these rules:

@@ -101,10 +101,29 @@ const stopAudioCapture = async () => {
 
 // ── Tab Closed → Cleanup ─────────────────────────────────────────────────────
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.local.get(["activeTabId"], (data) => {
+  chrome.storage.local.get(["activeTabId", "capturing", "transcript"], (data) => {
     if (data.activeTabId && data.activeTabId === tabId) {
-      console.log("[Meet Minutes Pro] Active Meet tab closed — tearing down capture.");
-      cleanupActiveSession();
+      console.log("[Meet Minutes Pro] Active Meet tab closed — checking if summary compilation is needed.");
+      const hasTranscript = data.transcript && data.transcript.length > 0;
+      if (data.capturing && hasTranscript) {
+        console.log("[Meet Minutes Pro] Capturing was active with transcript. Setting isAutoStopping = true to trigger auto-summarization on offscreen cleanup.");
+        chrome.storage.local.set({ isAutoStopping: true }, () => {
+          // We wait for the offscreen document to notice the track ended,
+          // flush the final audio, and send offscreenCleanupComplete.
+          // If the offscreen document doesn't respond within 5 seconds, we run a safety cleanup.
+          setTimeout(() => {
+            chrome.storage.local.get(["activeTabId"], (status) => {
+              if (status.activeTabId === tabId) {
+                console.warn("[Meet Minutes Pro] Offscreen cleanup timed out after tab close. Forcing cleanup.");
+                finalizeStopAndResponse();
+              }
+            });
+          }, 5000);
+        });
+      } else {
+        console.log("[Meet Minutes Pro] No active capturing or empty transcript. Tearing down immediately.");
+        cleanupActiveSession();
+      }
     }
   });
 });
@@ -186,38 +205,87 @@ const appendToTranscript = (cleanText) => {
 };
 
 // ── Coordinated Shutdown & Finalization Handlers ─────────────────────────────
+// Helper to save to local history in the service worker
+const saveToExtensionHistory = (markdownText) => {
+  const titleMatch = markdownText.match(/^#\s+(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : "Meeting Minutes";
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  
+  chrome.storage.local.get(["extension_history"], (data) => {
+    const history = data.extension_history || [];
+    const isDuplicate = history.some(h => h.markdown === markdownText);
+    if (isDuplicate) return;
+    
+    const newItem = {
+      id: String(Date.now()),
+      title,
+      date: dateStr,
+      markdown: markdownText
+    };
+    history.unshift(newItem);
+    if (history.length > 10) history.pop();
+    chrome.storage.local.set({ extension_history: history });
+  });
+};
+
 const finalizeStopAndResponse = () => {
-  chrome.storage.local.get(["transcript", "isAutoStopping"], (data) => {
+  chrome.storage.local.get(["transcript"], (data) => {
     const fullText = (data.transcript || []).join("\n");
-    const isAuto = !!data.isAutoStopping;
 
     cleanupActiveSession();
     chrome.storage.local.set({ isAutoStopping: false });
 
-    if (isAuto) {
-      if (fullText.trim().length > 0) {
-        console.log("[Meet Minutes Pro] Auto-summarizing final transcript of length:", fullText.length);
-        callSummarizeAPI("", fullText)
-          .then((summaryRes) => {
-            const payload = JSON.stringify({ markdown: summaryRes.markdown, structuredData: summaryRes.structuredData });
-            const bytes = new TextEncoder().encode(payload);
-            let binary = "";
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            const encoded = btoa(binary);
-            chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
-          })
-          .catch((err) => {
-            console.error("[Meet Minutes Pro] Auto-summarization failed:", err);
-          });
-      }
-    } else if (pendingStopResponse) {
-      const chunks = [];
-      for (let i = 0; i < fullText.length; i += 11200) {
-        chunks.push(fullText.substring(i, i + 11200));
-      }
-      pendingStopResponse({ ok: true, transcript: fullText, summary: "", chunks });
+    if (fullText.trim().length > 0) {
+      console.log("[Meet Minutes Pro] Summarizing final transcript of length:", fullText.length);
+      
+      // Notify popup compilation has started
+      try {
+        chrome.runtime.sendMessage({ event: "compilationStarted" });
+      } catch (_) {}
+
+      callSummarizeAPI("", fullText)
+        .then((summaryRes) => {
+          // Save to local extension history
+          saveToExtensionHistory(summaryRes.markdown);
+
+          // Clear the transcript on successful compilation
+          chrome.storage.local.set({ transcript: [] });
+
+          const payload = JSON.stringify({ markdown: summaryRes.markdown, structuredData: summaryRes.structuredData });
+          const bytes = new TextEncoder().encode(payload);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const encoded = btoa(binary);
+          chrome.tabs.create({ url: `${PORTAL_URL}result#${encoded}` });
+
+          // Notify popup compilation completed successfully
+          try {
+            chrome.runtime.sendMessage({ event: "compilationCompleted", success: true });
+          } catch (_) {}
+        })
+        .catch((err) => {
+          console.error("[Meet Minutes Pro] Summarization failed:", err);
+          try {
+            chrome.runtime.sendMessage({ event: "compilationCompleted", success: false, error: err.message || "Summarization failed" });
+          } catch (_) {}
+        });
+    } else {
+      console.log("[Meet Minutes Pro] Empty transcript, nothing to summarize.");
+      try {
+        chrome.runtime.sendMessage({ event: "compilationCompleted", success: false, error: "No transcription was recorded during the call." });
+      } catch (_) {}
+    }
+
+    if (pendingStopResponse) {
+      pendingStopResponse({ ok: true });
       pendingStopResponse = null;
     }
   });
@@ -300,6 +368,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       cleanupActiveSession();
       sendResponse({ ok: true });
     });
+    return true; // Keep channel open async
+  } else if (msg.action === "keepAlive") {
+    sendResponse({ ok: true });
     return true; // Keep channel open async
   } else if (msg.action === "ping") {
     chrome.storage.local.get(["capturing", "transcript", "captureStartTime"], (data) => {

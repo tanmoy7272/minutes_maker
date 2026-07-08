@@ -19,6 +19,8 @@ export const getGroqKeys = (): string[] => {
   return Array.from(new Set(keys));
 };
 
+const disabledKeys = new Map<string, number>();
+
 export async function callLLM(prompt: string, system: string, forceFallback = false, customKey?: string): Promise<string> {
   const groqKeys = getGroqKeys();
   const hasGroqKeys = groqKeys.length > 0;
@@ -32,16 +34,31 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
     return callGemini(prompt, system, customKey);
   }
 
-  // Try Groq Keys Sequentially
-  console.log(`[MMP] Found ${groqKeys.length} Groq API keys in pool. Attempting Groq...`);
+  // Filter keys that are not cooling down
+  const activeKeys = groqKeys.filter(key => {
+    const disableTime = disabledKeys.get(key) || 0;
+    if (Date.now() < disableTime) {
+      console.log(`[MMP] Skipping rate-limited Groq Key (cooling down for ${Math.round((disableTime - Date.now()) / 1000)}s)...`);
+      return false;
+    }
+    return true;
+  });
 
-  for (let i = 0; i < groqKeys.length; i++) {
-    const key = groqKeys[i];
+  if (activeKeys.length === 0) {
+    const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
+    console.warn(`[MMP] All Groq API keys are currently rate-limited/cooling down. Falling back directly to ${model}...`);
+    return callGemini(prompt, system, customKey);
+  }
+
+  console.log(`[MMP] Found ${activeKeys.length} active Groq API keys in pool (out of ${groqKeys.length}). Attempting Groq...`);
+
+  for (let i = 0; i < activeKeys.length; i++) {
+    const key = activeKeys[i];
     const keyAbbrev = key.length > 12
       ? key.substring(0, 8) + "..." + key.substring(key.length - 4)
       : "key_" + (i + 1);
 
-    console.log(`[MMP] Trying Groq Key ${i + 1}/${groqKeys.length} (${keyAbbrev}) using llama-3.3-70b-versatile...`);
+    console.log(`[MMP] Trying Groq Key ${i + 1}/${activeKeys.length} (${keyAbbrev}) using llama-3.3-70b-versatile...`);
 
     try {
       const controller = new AbortController();
@@ -67,6 +84,11 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
 
       clearTimeout(timeout);
 
+      if (res.status === 429) {
+        console.warn(`[MMP] Groq Key ${i + 1} rate-limited (429). Initiating 2-minute cooldown.`);
+        disabledKeys.set(key, Date.now() + 120000); // 2 minutes cooldown
+      }
+
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -84,10 +106,10 @@ export async function callLLM(prompt: string, system: string, forceFallback = fa
     }
   }
 
-  // If all Groq keys failed, fall back to Gemini
+  // If all active Groq keys failed, fall back to Gemini
   const model = process.env.LLM_FALLBACK_MODEL || "gemini-3.5-flash";
-  console.warn(`[MMP] All Groq API keys failed. Falling back to ${model}...`);
-  return callGemini(prompt, system);
+  console.warn(`[MMP] All active Groq API keys failed. Falling back to ${model}...`);
+  return callGemini(prompt, system, customKey);
 }
 
 async function callGemini(prompt: string, system: string, customKey?: string): Promise<string> {

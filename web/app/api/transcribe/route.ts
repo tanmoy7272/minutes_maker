@@ -4,6 +4,8 @@ import { rateLimit } from "../../../lib/rateLimit";
 
 export const maxDuration = 60;
 
+const disabledTranscribeKeys = new Map<string, number>();
+
 function getCorsHeaders(request: NextRequest) {
   const origin = request.headers.get("origin") || "";
   const allowedOrigin = (origin.startsWith("chrome-extension://") || origin.includes("localhost") || origin.includes("127.0.0.1")) 
@@ -65,9 +67,14 @@ export async function POST(request: NextRequest) {
 
     // 3. Transcription flow: try Groq Whisper first if keys exist, unless custom key is supplied
     if (groqKeys.length > 0 && !customKey) {
-      for (let i = 0; i < groqKeys.length; i++) {
-        const key = groqKeys[i];
-        console.log(`[MMP-Transcribe] Attempting transcription with Groq Key ${i + 1}/${groqKeys.length}...`);
+      const activeKeys = groqKeys.filter(key => {
+        const disableTime = disabledTranscribeKeys.get(key) || 0;
+        return Date.now() >= disableTime;
+      });
+
+      for (let i = 0; i < activeKeys.length; i++) {
+        const key = activeKeys[i];
+        console.log(`[MMP-Transcribe] Attempting transcription with Groq Key ${i + 1}/${activeKeys.length}...`);
 
         try {
           const controller = new AbortController();
@@ -77,6 +84,7 @@ export async function POST(request: NextRequest) {
           groqFormData.append("file", file);
           groqFormData.append("model", "whisper-large-v3");
           groqFormData.append("response_format", "json");
+          groqFormData.append("prompt", "This audio is a mixture of English, Hindi, and Bengali (including code-switching, Hinglish, and Benglish). Please transcribe the spoken words verbatim in their respective languages and scripts.");
 
           const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
             method: "POST",
@@ -97,6 +105,10 @@ export async function POST(request: NextRequest) {
             break;
           } else {
             const errText = await response.text();
+            if (response.status === 429) {
+              console.warn(`[MMP-Transcribe] Groq Key ${i + 1} rate-limited. Initiating 2-minute cooldown.`);
+              disabledTranscribeKeys.set(key, Date.now() + 120000);
+            }
             console.warn(`[MMP-Transcribe] Key ${i + 1} rejected request: ${response.status} - ${errText}`);
             lastErrorMsg = `HTTP ${response.status}: ${errText}`;
           }
@@ -135,7 +147,7 @@ export async function POST(request: NextRequest) {
                   }
                 },
                 {
-                  text: "Please transcribe the spoken audio verbatim. Do not summarize, paraphrase, or add any introductory or explanatory text. If the audio is silent or contains no speech, return an empty string."
+                  text: "Please transcribe the spoken audio verbatim in its original language (which may be English, Hindi, Bengali, or a mixture of them). Do not translate, summarize, paraphrase, or add any introductory or explanatory text. If the audio is silent or contains no speech, return an empty string."
                 }
               ]
             }],

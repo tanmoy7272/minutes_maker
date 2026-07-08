@@ -53,9 +53,15 @@
 
       let finalStream = mixedDestination.stream;
 
-      // Try to capture user's own microphone and mix it in
+      // Try to capture user's own microphone and mix it in with echo cancellation
       try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
         const micSource = audioCtx.createMediaStreamSource(micStream);
         micSource.connect(mixedDestination);
         console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
@@ -164,12 +170,16 @@
     mediaRecorder.start();
     console.log("[MMP-Offscreen] MediaRecorder active. Slicing progressive chunks.");
 
-    // Slices audio every 20 seconds to provide responsive transcripts
+    // Slices audio every 40 seconds to provide responsive transcripts and pings service worker to prevent sleep
     recordingInterval = setInterval(() => {
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop(); // Stops, compiles current blob, and auto-recycles
       }
-    }, 20000);
+      // Heartbeat ping to keep service worker active during long sessions
+      try {
+        chrome.runtime.sendMessage({ action: "keepAlive" });
+      } catch (_) {}
+    }, 40000);
   };
 
   const stopRecordingStream = () => {
@@ -255,6 +265,11 @@
       } else {
         console.error("[MMP-Offscreen] All transcription retry attempts failed. Buffering source chunk in offline queue.");
         if (rawSourceBlob) {
+          // Prevent queue from growing past 3 chunks (approx 1 minute of audio) to avoid Payload Too Large (413) on Vercel
+          if (offlineBlobQueue.length >= 3) {
+            console.warn("[MMP-Offscreen] Offline queue is full. Discarding oldest chunk to prevent memory bloat and API payload rejection.");
+            offlineBlobQueue.shift();
+          }
           offlineBlobQueue.push(rawSourceBlob);
         }
         // Notify background that cleanup is complete anyway to avoid hangs
