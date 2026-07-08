@@ -73,9 +73,12 @@
       });
 
       console.log(`[MMP-Popup] 4. Instantly messaging stream ID: ${streamId} to offscreen context...`);
-      chrome.runtime.sendMessage({ 
-        action: "initiateCapture", 
-        streamId: streamId 
+      chrome.storage.local.get(["customGeminiKey"], (stored) => {
+        chrome.runtime.sendMessage({ 
+          action: "initiateCapture", 
+          streamId: streamId,
+          customGeminiKey: stored.customGeminiKey || ""
+        });
       });
 
       console.log("[MMP-Popup] 5. Syncing active capturing metadata to service worker...");

@@ -423,7 +423,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ── Heartbeat Alarm Event Handler ──────────────────────────────────────────
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "offscreenHeartbeat") {
-    chrome.storage.local.get(["capturing", "activeTabId", "tempStreamId", "captureStartTime"], async (data) => {
+    chrome.storage.local.get(["capturing", "activeTabId", "tempStreamId", "captureStartTime", "customGeminiKey"], async (data) => {
       if (data.capturing) {
         // Skip check if capture started recently (within 15 seconds) to avoid startup race conditions
         const elapsed = Date.now() - (data.captureStartTime || 0);
@@ -439,7 +439,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
             await startAudioCapture(data.activeTabId);
             if (data.tempStreamId) {
               setTimeout(() => {
-                chrome.runtime.sendMessage({ action: "initiateCapture", streamId: data.tempStreamId });
+                chrome.runtime.sendMessage({ 
+                  action: "initiateCapture", 
+                  streamId: data.tempStreamId,
+                  customGeminiKey: data.customGeminiKey || ""
+                });
               }, 1000);
             }
           } catch (err) {
@@ -453,7 +457,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
                 stopAudioCapture().then(() => {
                   startAudioCapture(data.activeTabId).then(() => {
                     if (data.tempStreamId) {
-                      chrome.runtime.sendMessage({ action: "initiateCapture", streamId: data.tempStreamId });
+                      chrome.runtime.sendMessage({ 
+                        action: "initiateCapture", 
+                        streamId: data.tempStreamId,
+                        customGeminiKey: data.customGeminiKey || ""
+                      });
                     }
                   });
                 });

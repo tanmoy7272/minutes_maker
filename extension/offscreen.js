@@ -9,6 +9,7 @@
 
   let captureInitiated = false;
   let offlineBlobQueue = [];
+  let customGeminiKey = "";
 
   const initCaptureFlow = async (streamId) => {
     if (captureInitiated) return;
@@ -99,6 +100,9 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "initiateCapture") {
       console.log("[MMP-Offscreen] Received initiateCapture message.");
+      if (msg.customGeminiKey) {
+        customGeminiKey = msg.customGeminiKey;
+      }
       initCaptureFlow(msg.streamId);
     } else if (msg.action === "stopCapture") {
       console.log("[MMP-Offscreen] Received stopCapture instruction.");
@@ -216,12 +220,18 @@
 
     try {
       const endpoint = `${portalUrl.endsWith("/") ? portalUrl.slice(0, -1) : portalUrl}/api/transcribe`;
-      const dataStorage = await new Promise((resolve) => {
-        chrome.storage.local.get(["customGeminiKey"], resolve);
-      });
       const headers = {};
-      if (dataStorage && dataStorage.customGeminiKey) {
-        headers["x-custom-gemini-key"] = dataStorage.customGeminiKey;
+      if (customGeminiKey) {
+        headers["x-custom-gemini-key"] = customGeminiKey;
+      } else if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        try {
+          const dataStorage = await new Promise((resolve) => {
+            chrome.storage.local.get(["customGeminiKey"], resolve);
+          });
+          if (dataStorage && dataStorage.customGeminiKey) {
+            headers["x-custom-gemini-key"] = dataStorage.customGeminiKey;
+          }
+        } catch (_) {}
       }
 
       const response = await fetch(endpoint, {
