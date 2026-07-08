@@ -279,9 +279,15 @@ const finalizeStopAndResponse = () => {
         });
     } else {
       console.log("[Meet Minutes Pro] Empty transcript, nothing to summarize.");
-      try {
-        chrome.runtime.sendMessage({ event: "compilationCompleted", success: false, error: "No transcription was recorded during the call." });
-      } catch (_) {}
+      chrome.storage.local.get(["lastError"], (stored) => {
+        let errDesc = "No transcription was recorded during the call.";
+        if (stored && stored.lastError) {
+          errDesc = `Transcription failed: ${stored.lastError}`;
+        }
+        try {
+          chrome.runtime.sendMessage({ event: "compilationCompleted", success: false, error: errDesc });
+        } catch (_) {}
+      });
     }
 
     if (pendingStopResponse) {
@@ -330,7 +336,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       captureStartTime: startTime,
       activeTabId: tabId,
       tempStreamId: streamId,
-      transcript: []
+      transcript: [],
+      lastError: null
     }, () => {
       startAudioCapture(tabId)
         .then(() => sendResponse({ ok: true }))
@@ -353,7 +360,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       captureStartTime: startTime,
       activeTabId: msg.tabId,
       tempStreamId: msg.streamId, // Store the stream ID!
-      transcript: []
+      transcript: [],
+      lastError: null
     }, () => {
       sendResponse({ ok: true, startTime });
     });
@@ -364,7 +372,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     triggerStopFlow();
     return true; // Keep channel open async
   } else if (msg.action === "clear") {
-    chrome.storage.local.set({ transcript: [] }, () => {
+    chrome.storage.local.set({ transcript: [], lastError: null }, () => {
       cleanupActiveSession();
       sendResponse({ ok: true });
     });
@@ -389,6 +397,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg.action === "audioSegmentTranscribed") {
     const cleanText = msg.text?.trim();
     if (cleanText) {
+      chrome.storage.local.set({ lastError: null });
       appendToTranscript(cleanText);
     }
   } else if (msg.action === "autoStopAndSummarize") {
@@ -417,6 +426,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           });
       });
     });
+  } else if (msg.action === "transcriptionFailed") {
+    chrome.storage.local.set({ lastError: msg.error });
   }
 });
 

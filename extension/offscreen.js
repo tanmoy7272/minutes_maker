@@ -31,6 +31,7 @@
 
       // Track ended handler to auto-cleanup when tab closes / redirects
       tabStream.getAudioTracks().forEach(track => {
+        console.log(`[MMP-Offscreen] Tab Audio Track: label="${track.label}", active=${track.active}, enabled=${track.enabled}`);
         track.onended = () => {
           console.log("[MMP-Offscreen] Tab stream audio track ended. Stopping capture...");
           stopRecordingStream();
@@ -62,6 +63,9 @@
             noiseSuppression: true,
             autoGainControl: true
           } 
+        });
+        micStream.getAudioTracks().forEach(track => {
+          console.log(`[MMP-Offscreen] Mic Audio Track: label="${track.label}", active=${track.active}, enabled=${track.enabled}`);
         });
         const micSource = audioCtx.createMediaStreamSource(micStream);
         micSource.connect(mixedDestination);
@@ -241,7 +245,19 @@
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        let errMsg = `HTTP ${response.status} ${response.statusText}`;
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) {
+            errMsg = errData.error;
+          }
+        } catch (_) {
+          try {
+            const txt = await response.text();
+            if (txt) errMsg = txt.substring(0, 100);
+          } catch (_) {}
+        }
+        throw new Error(errMsg);
       }
 
       const result = await response.json();
@@ -274,6 +290,14 @@
         }, delay);
       } else {
         console.error("[MMP-Offscreen] All transcription retry attempts failed. Buffering source chunk in offline queue.");
+        
+        try {
+          chrome.runtime.sendMessage({ 
+            action: "transcriptionFailed", 
+            error: err.message || String(err) 
+          });
+        } catch (_) {}
+
         if (rawSourceBlob) {
           // Prevent queue from growing past 3 chunks (approx 1 minute of audio) to avoid Payload Too Large (413) on Vercel
           if (offlineBlobQueue.length >= 3) {
