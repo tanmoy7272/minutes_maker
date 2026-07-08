@@ -11,6 +11,34 @@
   let offlineBlobQueue = [];
   let customGeminiKey = "";
 
+  let audioCtx = null;
+  let tabSource = null;
+  let micSource = null;
+  let mixedDestination = null;
+  let analyser = null;
+  let chunkHasAudio = false;
+  let volumeCheckTimeout = null;
+  const volumeData = new Uint8Array(128);
+
+  const checkVolume = () => {
+    if (!recordingActive || !analyser) return;
+    try {
+      analyser.getByteTimeDomainData(volumeData);
+      let sum = 0;
+      for (let i = 0; i < volumeData.length; i++) {
+        const val = (volumeData[i] - 128) / 128;
+        sum += val * val;
+      }
+      const rms = Math.sqrt(sum / volumeData.length);
+      if (rms > 0.015) { // Active speaking volume threshold (filters out silent white noise)
+        chunkHasAudio = true;
+      }
+    } catch (err) {
+      console.warn("[MMP-Offscreen] Volume check failed:", err);
+    }
+    volumeCheckTimeout = setTimeout(checkVolume, 500);
+  };
+
   const initCaptureFlow = async (streamId) => {
     if (captureInitiated) return;
     captureInitiated = true;
@@ -37,19 +65,33 @@
       });
 
       // 2. WEB AUDIO MIX & LOOPBACK: Capture silences local tab speakers natively.
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Auto-resume AudioContext dynamically if suspended by device changes/sleep states
+      audioCtx.onstatechange = () => {
+        console.log(`[MMP-Offscreen] AudioContext state changed to: ${audioCtx.state}`);
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume().catch(e => console.warn("[MMP-Offscreen] Failed to resume AudioContext:", e));
+        }
+      };
+
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
-      const tabSource = audioCtx.createMediaStreamSource(tabStream);
+      tabSource = audioCtx.createMediaStreamSource(tabStream);
       
       // Loop back tab audio to speakers
       tabSource.connect(audioCtx.destination);
       console.log("[MMP-Offscreen] Web Audio Loopback speaker pipe successful.");
 
       // Create a mixed destination stream to record both inputs
-      const mixedDestination = audioCtx.createMediaStreamDestination();
+      mixedDestination = audioCtx.createMediaStreamDestination();
       tabSource.connect(mixedDestination);
+
+      // Create AnalyserNode to monitor amplitude and skip silent segments
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      tabSource.connect(analyser);
 
       let finalStream = mixedDestination.stream;
 
@@ -65,8 +107,9 @@
         micStream.getAudioTracks().forEach(track => {
           console.log(`[MMP-Offscreen] Mic Audio Track: label="${track.label}", active=${track.active}, enabled=${track.enabled}`);
         });
-        const micSource = audioCtx.createMediaStreamSource(micStream);
+        micSource = audioCtx.createMediaStreamSource(micStream);
         micSource.connect(mixedDestination);
+        micSource.connect(analyser);
         console.log("[MMP-Offscreen] Microphone captured and mixed successfully.");
       } catch (micErr) {
         console.log("[MMP-Offscreen] Microphone capture failed or denied. Continuing with tab audio only.", micErr);
@@ -118,6 +161,8 @@
   const startRecordingStream = (stream) => {
     recordingActive = true;
     recordedChunks = [];
+    chunkHasAudio = false;
+    checkVolume();
     
     // Choose appropriate mime type supported by MediaRecorder
     let mimeType = "audio/webm";
@@ -139,18 +184,24 @@
 
       let sentForTranscription = false;
 
-      // Safe size filter: ignore micro-silent recordings (less than 1KB)
+      // Filter out chunks that are completely silent (no audio amplitude detected above noise threshold)
+      const hasOffline = offlineBlobQueue.length > 0;
       if (audioBlob.size > 1000) {
-        let targetBlob = audioBlob;
-        if (offlineBlobQueue.length > 0) {
-          console.log(`[MMP-Offscreen] Concatenating ${offlineBlobQueue.length} offline cached slices with current slice.`);
-          targetBlob = new Blob([...offlineBlobQueue, audioBlob], { type: audioBlob.type });
-        }
+        if (!chunkHasAudio && !hasOffline) {
+          console.log("[MMP-Offscreen] Audio segment is silent. Skipping API transcription upload to conserve rate limits.");
+        } else {
+          let targetBlob = audioBlob;
+          if (hasOffline) {
+            console.log(`[MMP-Offscreen] Concatenating ${offlineBlobQueue.length} offline cached slices with current slice.`);
+            targetBlob = new Blob([...offlineBlobQueue, audioBlob], { type: audioBlob.type });
+          }
 
-        console.log(`[MMP-Offscreen] Slicing segmented blob (${targetBlob.size} bytes). Sending to Whisper...`);
-        sendBlobForTranscription(targetBlob, audioBlob); // Pass raw blob to cache if it fails
-        sentForTranscription = true;
+          console.log(`[MMP-Offscreen] Slicing segmented blob (${targetBlob.size} bytes). Sending to Whisper...`);
+          sendBlobForTranscription(targetBlob, audioBlob); // Pass raw blob to cache if it fails
+          sentForTranscription = true;
+        }
       }
+      chunkHasAudio = false; // Reset for next segment
 
       // Automatically recycle and restart MediaRecorder for continuous progressive segments
       if (recordingActive && mediaRecorder) {
@@ -190,6 +241,12 @@
 
   const stopRecordingStream = () => {
     recordingActive = false;
+    
+    if (volumeCheckTimeout) {
+      clearTimeout(volumeCheckTimeout);
+      volumeCheckTimeout = null;
+    }
+    analyser = null;
     
     if (recordingInterval) {
       clearInterval(recordingInterval);
